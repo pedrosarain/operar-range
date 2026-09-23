@@ -1,0 +1,15 @@
+[project]
+name = "operar-range-quant"
+version = "0.1.0"
+description = "Motor quantitativo intraday - validação inicial Candle 18 / abertura NY"
+requires-python = ">=3.11"
+dependencies = [
+  "polars>=1.0",
+  "pyarrow>=16.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
