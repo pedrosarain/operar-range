@@ -1,1 +1,29 @@
-run = "python main.py"
+run = "PYTHONPATH=src python main.py"
+modules = ["python-base-3.13"]
+
+[nix]
+channel = "stable-25_05"
+packages = ["arrow-cpp", "libiconv", "pkg-config"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Run sample"
+
+[[workflows.workflow]]
+name = "Run sample"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PYTHONPATH=src python main.py"
+
+[workflows.workflow.metadata]
+outputType = "console"
