@@ -163,11 +163,16 @@ def _normalized_lazyframe(raw_csv: Path) -> pl.LazyFrame:
 
 
 def _infer_trade_number_step(lf: pl.LazyFrame) -> int | None:
-    """Infer the normal positive increment of trade_number.
+    """Infer the base increment of trade_number deterministically.
 
-    WIN vendor data observed so far advances 10, 20, 30...
-    We infer this instead of hardcoding 10.
+    Uses the GCD of all positive differences. This correctly identifies
+    the vendor base sequence even when the file contains gaps.
+
+    Example:
+    10, 20, 40 -> diffs 10, 20 -> base step 10.
     """
+    from math import gcd
+
     result = (
         lf.select(
             pl.col("trade_number")
@@ -175,17 +180,28 @@ def _infer_trade_number_step(lf: pl.LazyFrame) -> int | None:
             .alias("trade_step")
         )
         .filter(pl.col("trade_step") > 0)
-        .group_by("trade_step")
-        .len()
-        .sort("len", descending=True)
-        .limit(1)
+        .select(
+            pl.col("trade_step")
+            .unique()
+            .alias("trade_step")
+        )
         .collect(engine="streaming")
     )
 
     if result.height == 0:
         return None
 
-    return int(result["trade_step"][0])
+    steps = [
+        int(value)
+        for value in result["trade_step"].to_list()
+    ]
+
+    base_step = steps[0]
+
+    for step in steps[1:]:
+        base_step = gcd(base_step, step)
+
+    return base_step
 
 
 def _build_quality_report(

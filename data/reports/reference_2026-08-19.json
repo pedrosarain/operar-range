@@ -1,0 +1,21 @@
+{
+  "date": "2026-08-19",
+  "source_parquet": "winv26_ticks_20260819_enriched.parquet",
+  "ny_open_brt": "2026-08-19T10:30:00-03:00",
+  "reference_candle_start": "2026-08-19T10:25:00-03:00",
+  "reference_candle_end": "2026-08-19T10:30:00-03:00",
+  "open": 171935.0,
+  "high": 172480.0,
+  "low": 171785.0,
+  "close": 172295.0,
+  "volume": 323161.0,
+  "tick_count": 104499,
+  "intraday_high_until_open": 172480.0,
+  "intraday_low_until_open": 168680.0,
+  "reference_high_is_intraday_high": true,
+  "reference_low_is_intraday_low": false,
+  "buy_offset": 40,
+  "sell_offset": 20,
+  "buy_level": 172520.0,
+  "sell_level": 171765.0
+}

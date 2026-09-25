@@ -1,0 +1,13 @@
+{
+  "date": "2026-08-19",
+  "direction": "LONG",
+  "entry_price": 172520.0,
+  "row_count": 539269,
+  "first_timestamp": "2026-08-19T10:39:01.571000-03:00",
+  "last_timestamp": "2026-08-19T18:31:28.353000-03:00",
+  "mfe": 1010.0,
+  "mae": 2060.0,
+  "file_size_bytes": 2888764,
+  "sha256": "76a8e94a447f577efb9b55121b21d53e4b84b52ddd6459cbbb6dd40da010d47e",
+  "trajectory_file": "data/trajectories/winv26_trade1_20260819.parquet"
+}
