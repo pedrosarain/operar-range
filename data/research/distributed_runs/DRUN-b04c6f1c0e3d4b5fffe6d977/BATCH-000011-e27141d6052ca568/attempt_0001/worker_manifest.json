@@ -1,0 +1,27 @@
+{
+  "attempt_count": 1,
+  "batch_id": "BATCH-000011-e27141d6052ca568",
+  "claimed_at": "2026-09-26T00:50:57+00:00",
+  "completed_at": "2026-09-26T00:51:01+00:00",
+  "distributed_engine_version": "distributed-executor-v1",
+  "execution_units": 3,
+  "heartbeat_at": null,
+  "lease_expires_at": null,
+  "motor_version": "trade1-adr004",
+  "package_manifest_sha256": "acd3d3dcce4a6a6833f6e896dc7033933d047375831e696ac77fcaf5e1092377",
+  "result_path": "result.parquet",
+  "result_sha256": "2b0c7d3731ad49a54ba3c8efed9d9a5a7e9aa40e4e3fbb57272e2a06b864976c",
+  "rules_version": "ADR-004+STAGE10",
+  "run_id": "DRUN-b04c6f1c0e3d4b5fffe6d977",
+  "source_hashes": {
+    "batch_plan_sha256": "f92f1528a0cc9601b2ff0c4633e4db7336b0d38b6479fb96950374839927be9a",
+    "registry_sha256": "77ac2699e47d1eba8267b17d375286ae2d2659d845f140219f48ad1f2a609e9a",
+    "rule_set_sha256": "272c60781988118ef0780605d9f5def43e9ad5314764c4d2d2b53e60c978070f",
+    "trajectory_manifest_sha256": "0780304ebc2095553428a62590fc9b199b03115f67b74c5cc8bf15649476e622",
+    "valid_experiments_sha256": "f7a70e50f038c44406b7e8348f20d8b851d2deb0be15cc72388db84b67bbd4c9"
+  },
+  "started_at": "2026-09-26T00:50:57+00:00",
+  "status": "COMPLETED",
+  "worker_contract_version": "distributed-worker-contract-v1",
+  "worker_id": "WORKER-001"
+}

@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
   "polars>=1.0",
   "pyarrow>=16.0",
+  "streamlit>=1.64.0",
 ]
 
 [project.optional-dependencies]

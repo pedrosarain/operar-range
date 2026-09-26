@@ -1,0 +1,28 @@
+{
+  "constraint_rules_sha256": "14e97665c5ca72d575302e77c30ff71b9dc77553ceb0f78b67d93d81d8512151",
+  "definition_sha256": "32e6ff882aab3e178e4543e0aaf94eba73f8d90c2118e9051895c75245dc2f56",
+  "engine_version": "constraint-engine-v1",
+  "executed_at": "2026-09-25T21:55:23+00:00",
+  "generated_experiments_sha256": "94045bd39e6fb3a518908d19997a51ac8b0a1946cd9916de7cfead56fdcf3368",
+  "generated_total": 16,
+  "invalid_total": 12,
+  "registry_sha256": "d2ac3c587b426dad72866cb1bda3fd5a0d8670ea58a9f97bf418d5f7922bf558",
+  "rejected_experiments_sha256": "b36af6a3ea8c2516b4ea17b15539830c5812c779f619568953e07d751f295780",
+  "rejection_count_by_rule": {
+    "C001": 1,
+    "C003": 1,
+    "C004": 2,
+    "C005": 1,
+    "C006": 2,
+    "C008": 2,
+    "C009": 1,
+    "C010": 1,
+    "C012": 1,
+    "C014": 1
+  },
+  "rule_set_sha256": "272c60781988118ef0780605d9f5def43e9ad5314764c4d2d2b53e60c978070f",
+  "valid_experiments_sha256": "d1edac196c2b71a3f46f35ba11c5d47aad2b56eaba02e7ae74875ee8072bec7e",
+  "valid_total": 4,
+  "warning_count_by_rule": {},
+  "warning_total": 0
+}

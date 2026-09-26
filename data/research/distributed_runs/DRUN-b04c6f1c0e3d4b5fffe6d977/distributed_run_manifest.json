@@ -1,0 +1,34 @@
+{
+  "batch_ids": [
+    "BATCH-000001-bc93a1707ba909e0",
+    "BATCH-000002-368d23af0f09e103",
+    "BATCH-000003-4650ea7529947972",
+    "BATCH-000004-08139747596c7a03",
+    "BATCH-000005-f20338a43ce8ee2f",
+    "BATCH-000006-993adc1efba87d40",
+    "BATCH-000007-11792dc084791dec",
+    "BATCH-000008-adf0c099402c8b58",
+    "BATCH-000009-77d8ae62e92cd6df",
+    "BATCH-000010-e138ac600675396b",
+    "BATCH-000011-e27141d6052ca568",
+    "BATCH-000012-803c9615eb564568",
+    "BATCH-000013-c13534d5fd72bb12",
+    "BATCH-000014-18d7bddddc5bcdfc",
+    "BATCH-000015-ba31d4c2e5385819",
+    "BATCH-000016-3d63d0ee06e7ba7f"
+  ],
+  "batches_total": 16,
+  "distributed_engine_version": "distributed-executor-v1",
+  "execution_units_total": 48,
+  "motor_version": "trade1-adr004",
+  "rules_version": "ADR-004+STAGE10",
+  "run_id": "DRUN-b04c6f1c0e3d4b5fffe6d977",
+  "source_hashes": {
+    "batch_plan_sha256": "f92f1528a0cc9601b2ff0c4633e4db7336b0d38b6479fb96950374839927be9a",
+    "registry_sha256": "77ac2699e47d1eba8267b17d375286ae2d2659d845f140219f48ad1f2a609e9a",
+    "rule_set_sha256": "272c60781988118ef0780605d9f5def43e9ad5314764c4d2d2b53e60c978070f",
+    "trajectory_manifest_sha256": "0780304ebc2095553428a62590fc9b199b03115f67b74c5cc8bf15649476e622",
+    "valid_experiments_sha256": "f7a70e50f038c44406b7e8348f20d8b851d2deb0be15cc72388db84b67bbd4c9"
+  },
+  "worker_contract_version": "distributed-worker-contract-v1"
+}

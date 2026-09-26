@@ -1,0 +1,40 @@
+{
+  "batch_id": "BATCH-000008-adf0c099402c8b58",
+  "distributed_engine_version": "distributed-executor-v1",
+  "execution_unit_count": 3,
+  "execution_unit_ids": [
+    "EU-306d89763c4f03f615cb74aed63aad56dfb3c624fdd993a377b0db461916fff4",
+    "EU-3ad8ddd2188498031be80dce1d81690928c0c8294f7079ca1adf089a1dbd51e5",
+    "EU-88e60d634c535d33077c5cea08db6fdb329660f6901c4ac35afca9045920f1df"
+  ],
+  "experiment_ids": [
+    "EXP-000032",
+    "EXP-000033"
+  ],
+  "motor_version": "trade1-adr004",
+  "package_files": {
+    "batch_plan": "batch_plan.parquet",
+    "experiments": "experiments.parquet",
+    "trajectory_manifest": "trajectory_manifest.parquet"
+  },
+  "package_hashes": {
+    "batch_plan": "550ac3ab3f5a8c65410104f05ffa19a1501aa4298cdd5cb669c423514af061bb",
+    "experiments": "3f7772e2d9913780810eeb9479ca8cade2ce180932425de366e89cf174d19b49",
+    "trajectory_manifest": "0780304ebc2095553428a62590fc9b199b03115f67b74c5cc8bf15649476e622"
+  },
+  "package_version": "distributed-batch-package-v1",
+  "rules_version": "ADR-004+STAGE10",
+  "run_id": "DRUN-b04c6f1c0e3d4b5fffe6d977",
+  "session_dates": [
+    "2026-08-18",
+    "2026-08-19"
+  ],
+  "source_hashes": {
+    "batch_plan_sha256": "f92f1528a0cc9601b2ff0c4633e4db7336b0d38b6479fb96950374839927be9a",
+    "registry_sha256": "77ac2699e47d1eba8267b17d375286ae2d2659d845f140219f48ad1f2a609e9a",
+    "rule_set_sha256": "272c60781988118ef0780605d9f5def43e9ad5314764c4d2d2b53e60c978070f",
+    "trajectory_manifest_sha256": "0780304ebc2095553428a62590fc9b199b03115f67b74c5cc8bf15649476e622",
+    "valid_experiments_sha256": "f7a70e50f038c44406b7e8348f20d8b851d2deb0be15cc72388db84b67bbd4c9"
+  },
+  "worker_contract_version": "distributed-worker-contract-v1"
+}

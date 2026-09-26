@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -79,6 +79,7 @@ def reconstruct_trade1(
     )
 
     ny_open = datetime.fromisoformat(reference["ny_open_brt"])
+    entry_window_end = ny_open + timedelta(minutes=5)
 
     buy_level = float(reference["buy_level"])
     sell_level = float(reference["sell_level"])
@@ -193,6 +194,22 @@ def reconstruct_trade1(
             previous_trade_number = trade_number
 
             if not entry_found:
+                if timestamp >= entry_window_end:
+                    return {
+                        "date": session_date.isoformat(),
+                        "source_parquet": parquet_path.name,
+                        "ny_open": reference["ny_open_brt"],
+                        "buy_level": buy_level,
+                        "sell_level": sell_level,
+                        "entry_found": False,
+                        "direction": None,
+                        "trajectory": [],
+                        "trade1_window_start": _iso(ny_open),
+                        "trade1_window_end": _iso(entry_window_end),
+                        "trade1_status": "NO_TRADE_1",
+                        "ambiguity_flags": [],
+                    }
+
                 long_trigger = price >= buy_level
                 short_trigger = price <= sell_level
 

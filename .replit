@@ -27,3 +27,10 @@ args = "PYTHONPATH=src python main.py"
 
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[ports]]
+localPort = 8501
+
+[deployment]
+deploymentTarget = "cloudrun"
+run = "PYTHONPATH=src python main.py"
