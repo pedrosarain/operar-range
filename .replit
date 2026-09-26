@@ -31,6 +31,10 @@ outputType = "console"
 [[ports]]
 localPort = 8501
 
+[[ports]]
+localPort = 8502
+externalPort = 80
+
 [deployment]
-deploymentTarget = "cloudrun"
-run = "PYTHONPATH=src python main.py"
+deploymentTarget = "autoscale"
+run = ["bash", "-c", "exec streamlit run app/main.py --server.address 0.0.0.0 --server.port=${PORT:-8501} --server.headless=true"]
