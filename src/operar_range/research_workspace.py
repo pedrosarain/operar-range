@@ -1759,7 +1759,7 @@ def _execute_distributed(
                 ]
             ),
             normalized_dir=(
-                NORMALIZED_ROOT
+                "data/normalized"
             ),
         )
 
