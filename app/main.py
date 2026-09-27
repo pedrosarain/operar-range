@@ -34,18 +34,26 @@ from app.components.common import (  # noqa: E402
     apply_terminal_theme,
 )
 from app.pages import compare  # noqa: E402
+from app.pages import data  # noqa: E402
 from app.pages import experiments  # noqa: E402
+from app.pages import new_research  # noqa: E402
 from app.pages import overview  # noqa: E402
 from app.pages import rankings  # noqa: E402
+from app.pages import researches  # noqa: E402
 from app.pages import sessions  # noqa: E402
 from app.pages import system  # noqa: E402
 
 
-APP_TITLE = "Operar Range — Research Terminal"
+APP_TITLE = (
+    "Operar Range — Research Workspace"
+)
 
 
 PAGES = {
     "Overview": overview.render,
+    "Data": data.render,
+    "Nova Pesquisa": new_research.render,
+    "Pesquisas": researches.render,
     "Experiments": experiments.render,
     "Rankings": rankings.render,
     "Compare": compare.render,
@@ -65,15 +73,57 @@ def configure_page() -> None:
     )
 
 
+def _consume_requested_page() -> None:
+    requested = (
+        st.session_state.pop(
+            "requested_terminal_page",
+            None,
+        )
+    )
+
+    if (
+        requested is not None
+        and requested in PAGES
+    ):
+        st.session_state[
+            "research_workspace_page"
+        ] = requested
+
+
 def render_sidebar() -> str:
+    _consume_requested_page()
+
+    active_research_id = (
+        st.session_state.get(
+            "active_research_id"
+        )
+    )
+
     with st.sidebar:
         st.markdown(
             "## OPERAR RANGE"
         )
 
         st.caption(
-            "Research Terminal V1"
+            "Research Workspace V1"
         )
+
+        if active_research_id:
+            st.success(
+                "PESQUISA ATIVA"
+            )
+
+            st.code(
+                str(
+                    active_research_id
+                ),
+                language=None,
+            )
+
+        else:
+            st.info(
+                "Nenhuma pesquisa ativa"
+            )
 
         st.divider()
 
@@ -85,7 +135,7 @@ def render_sidebar() -> str:
                 ),
                 index=0,
                 key=(
-                    "research_terminal_page"
+                    "research_workspace_page"
                 ),
             )
         )
@@ -93,16 +143,14 @@ def render_sidebar() -> str:
         st.divider()
 
         st.caption(
-            "READ ONLY"
+            "RESEARCH WORKSPACE"
         )
 
         st.caption(
             (
-                "Esta interface consulta "
-                "outputs homologados da "
-                "plataforma. Nenhuma alteração "
-                "de experimentos, regras ou "
-                "resultados é realizada pela UI."
+                "A pesquisa ativa controla "
+                "os datasets consumidos pela "
+                "plataforma."
             )
         )
 
@@ -146,7 +194,9 @@ def main() -> None:
         )
 
         st.caption(
-            str(exc)
+            str(
+                exc
+            )
         )
 
     except Exception as exc:
@@ -162,6 +212,12 @@ def main() -> None:
             (
                 "Tipo do erro: "
                 f"{type(exc).__name__}"
+            )
+        )
+
+        st.caption(
+            str(
+                exc
             )
         )
 
