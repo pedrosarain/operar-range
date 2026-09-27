@@ -1051,11 +1051,13 @@ def _open_result_button(
         st.success(
             (
                 "Resultado selecionado. "
-                "Abrindo Research Terminal..."
+                "Abrindo Research Workspace..."
             )
         )
 
-        st.rerun()
+        st.switch_page(
+            "app/main.py"
+        )
 
 
 def render() -> None:
