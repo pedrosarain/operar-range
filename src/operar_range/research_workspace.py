@@ -765,6 +765,41 @@ def list_researches() -> list[
         rows.append(
             {
                 **manifest,
+                "research_name": (
+                    definition.get(
+                        "research_name"
+                    )
+                ),
+                "description": (
+                    definition.get(
+                        "description"
+                    )
+                ),
+                "model_id": (
+                    definition.get(
+                        "model_id"
+                    )
+                ),
+                "model_name": (
+                    definition.get(
+                        "model_name"
+                    )
+                ),
+                "dataset_key": (
+                    definition.get(
+                        "dataset_key"
+                    )
+                ),
+                "dataset_id": (
+                    definition.get(
+                        "dataset_id"
+                    )
+                ),
+                "dataset_version": (
+                    definition.get(
+                        "dataset_version"
+                    )
+                ),
                 "period_start": (
                     definition.get(
                         "period_start"
@@ -2690,3 +2725,459 @@ def delete_incomplete_research_for_test(
             "root"
         ]
     )
+
+def list_available_datasets() -> list[dict[str, Any]]:
+    """
+    Retorna os datasets preparados para pesquisa a partir
+    dos quality reports existentes.
+
+    Reports anteriores à Etapa 18.5 permanecem explicitamente
+    LEGACY_UNVERSIONED. Nenhuma metadata histórica é inferida.
+    """
+    quality_reports = sorted(
+        REPORTS_ROOT.glob("*.quality.json")
+    )
+
+    if not quality_reports:
+        return []
+
+    groups: dict[str, list[dict[str, Any]]] = {}
+
+    for report_path in quality_reports:
+        try:
+            report = read_json(
+                report_path
+            )
+        except Exception:
+            continue
+
+        source_sha256 = (
+            report.get("source_sha256")
+            or report.get("zip_sha256")
+        )
+
+        source_zip = report.get(
+            "source_zip"
+        )
+
+        group_key = (
+            str(source_sha256)
+            if source_sha256
+            else (
+                "SOURCE:"
+                + str(
+                    source_zip
+                    or report_path.name
+                )
+            )
+        )
+
+        groups.setdefault(
+            group_key,
+            [],
+        ).append(
+            {
+                **report,
+                "_report_path": str(
+                    report_path
+                ),
+            }
+        )
+
+    scanner_summary_path = (
+        REPORTS_ROOT
+        / "trade1_database_summary.json"
+    )
+
+    scanner_summary: dict[str, Any] = {}
+
+    if scanner_summary_path.exists():
+        try:
+            scanner_summary = read_json(
+                scanner_summary_path
+            )
+        except Exception:
+            scanner_summary = {}
+
+    datasets: list[dict[str, Any]] = []
+
+    for group_key, reports in sorted(
+        groups.items()
+    ):
+        timestamps_min = sorted(
+            [
+                str(
+                    row[
+                        "timestamp_min"
+                    ]
+                )
+                for row in reports
+                if row.get(
+                    "timestamp_min"
+                )
+            ]
+        )
+
+        timestamps_max = sorted(
+            [
+                str(
+                    row[
+                        "timestamp_max"
+                    ]
+                )
+                for row in reports
+                if row.get(
+                    "timestamp_max"
+                )
+            ]
+        )
+
+        dataset_ids = {
+            str(
+                row[
+                    "dataset_id"
+                ]
+            )
+            for row in reports
+            if row.get(
+                "dataset_id"
+            )
+        }
+
+        dataset_versions = {
+            str(
+                row[
+                    "dataset_version"
+                ]
+            )
+            for row in reports
+            if row.get(
+                "dataset_version"
+            )
+            is not None
+        }
+
+        imported_values = {
+            str(
+                row[
+                    "imported_at"
+                ]
+            )
+            for row in reports
+            if row.get(
+                "imported_at"
+            )
+        }
+
+        ingest_versions = {
+            str(
+                row[
+                    "ingest_version"
+                ]
+            )
+            for row in reports
+            if row.get(
+                "ingest_version"
+            )
+        }
+
+        normalization_versions = {
+            str(
+                row[
+                    "normalization_version"
+                ]
+            )
+            for row in reports
+            if row.get(
+                "normalization_version"
+            )
+        }
+
+        source_hashes = {
+            str(
+                row.get(
+                    "source_sha256"
+                )
+                or row.get(
+                    "zip_sha256"
+                )
+            )
+            for row in reports
+            if (
+                row.get(
+                    "source_sha256"
+                )
+                or row.get(
+                    "zip_sha256"
+                )
+            )
+        }
+
+        source_files = sorted(
+            {
+                str(
+                    row[
+                        "source_zip"
+                    ]
+                )
+                for row in reports
+                if row.get(
+                    "source_zip"
+                )
+            }
+        )
+
+        tickers = sorted(
+            {
+                str(
+                    row[
+                        "ticker"
+                    ]
+                )
+                for row in reports
+                if row.get(
+                    "ticker"
+                )
+            }
+        )
+
+        total_rows = sum(
+            int(
+                row.get(
+                    "row_count"
+                )
+                or 0
+            )
+            for row in reports
+        )
+
+        session_count = sum(
+            int(
+                row.get(
+                    "date_count"
+                )
+                or 0
+            )
+            for row in reports
+        )
+
+        quality_ok = all(
+            bool(
+                row.get(
+                    "is_sorted_by_timestamp_trade_number"
+                )
+            )
+            and int(
+                row.get(
+                    "duplicate_timestamp_trade_number"
+                )
+                or 0
+            )
+            == 0
+            and bool(
+                row.get(
+                    "original_columns_preserved"
+                )
+            )
+            for row in reports
+        )
+
+        is_versioned = (
+            bool(
+                dataset_ids
+            )
+            and bool(
+                normalization_versions
+            )
+            and bool(
+                ingest_versions
+            )
+        )
+
+        dataset_id = (
+            sorted(
+                dataset_ids
+            )[0]
+            if len(
+                dataset_ids
+            )
+            == 1
+            else None
+        )
+
+        dataset_version = (
+            sorted(
+                dataset_versions
+            )[0]
+            if len(
+                dataset_versions
+            )
+            == 1
+            else (
+                "LEGACY_UNVERSIONED"
+                if not is_versioned
+                else None
+            )
+        )
+
+        normalization_version = (
+            sorted(
+                normalization_versions
+            )[0]
+            if len(
+                normalization_versions
+            )
+            == 1
+            else (
+                "LEGACY_UNVERSIONED"
+                if not is_versioned
+                else None
+            )
+        )
+
+        ingest_version = (
+            sorted(
+                ingest_versions
+            )[0]
+            if len(
+                ingest_versions
+            )
+            == 1
+            else (
+                "LEGACY_UNVERSIONED"
+                if not is_versioned
+                else None
+            )
+        )
+
+        imported_at = (
+            sorted(
+                imported_values
+            )[0]
+            if len(
+                imported_values
+            )
+            == 1
+            else None
+        )
+
+        imported_at_status = (
+            "RECORDED"
+            if imported_at
+            else "NOT_RECORDED"
+        )
+
+        period_start = (
+            timestamps_min[0][0:10]
+            if timestamps_min
+            else None
+        )
+
+        period_end = (
+            timestamps_max[-1][0:10]
+            if timestamps_max
+            else None
+        )
+
+        prepared = bool(
+            quality_ok
+            and TRADE1_DATABASE_PATH.exists()
+            and TRAJECTORY_MANIFEST_PATH.exists()
+        )
+
+        datasets.append(
+            {
+                "dataset_id": (
+                    dataset_id
+                ),
+                "dataset_key": (
+                    dataset_id
+                    or group_key
+                ),
+                "dataset_version": (
+                    dataset_version
+                ),
+                "imported_at": (
+                    imported_at
+                ),
+                "imported_at_status": (
+                    imported_at_status
+                ),
+                "ingest_version": (
+                    ingest_version
+                ),
+                "normalization_version": (
+                    normalization_version
+                ),
+                "source_sha256": (
+                    sorted(
+                        source_hashes
+                    )[0]
+                    if len(
+                        source_hashes
+                    )
+                    == 1
+                    else None
+                ),
+                "source": (
+                    ", ".join(
+                        source_files
+                    )
+                    if source_files
+                    else None
+                ),
+                "provider": (
+                    next(
+                        (
+                            row.get(
+                                "source_provider"
+                            )
+                            for row in reports
+                            if row.get(
+                                "source_provider"
+                            )
+                        ),
+                        None,
+                    )
+                ),
+                "ticker": (
+                    ", ".join(
+                        tickers
+                    )
+                    if tickers
+                    else None
+                ),
+                "period_start": (
+                    period_start
+                ),
+                "period_end": (
+                    period_end
+                ),
+                "sessions_total": (
+                    session_count
+                ),
+                "records_total": (
+                    total_rows
+                ),
+                "quality_status": (
+                    "READY"
+                    if quality_ok
+                    else "ERROR"
+                ),
+                "prepared_for_research": (
+                    prepared
+                ),
+                "scanner_motor_version": (
+                    scanner_summary.get(
+                        "motor_version"
+                    )
+                ),
+                "quality_reports": (
+                    len(
+                        reports
+                    )
+                ),
+            }
+        )
+
+    return datasets

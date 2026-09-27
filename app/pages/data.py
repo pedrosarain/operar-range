@@ -1,32 +1,121 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pandas as pd
 import streamlit as st
 
 from app.components.common import (
     dataframe_view,
+    key_value_panel,
     metric_cards,
     page_header,
     section_title,
     status_badge,
 )
 from app.formatting import (
+    NA_TEXT,
     format_bytes,
     format_integer,
 )
 from operar_range.research_workspace import (
-    available_dataset_period,
+    list_available_datasets,
     list_inbox_files,
     process_datasets,
     validate_inbox_selection,
 )
 
 
-def _inventory_frame() -> pd.DataFrame:
-    rows = list_inbox_files()
+def _text(
+    value,
+) -> str:
+    if value is None:
+        return NA_TEXT
 
+    return str(value)
+
+
+def _dataset_display_frame(
+    rows: list[dict],
+) -> pd.DataFrame:
+    if not rows:
+        return pd.DataFrame()
+
+    dataframe = pd.DataFrame(
+        rows
+    )
+
+    dataframe[
+        "prepared"
+    ] = dataframe[
+        "prepared_for_research"
+    ].map(
+        {
+            True: "SIM",
+            False: "NÃO",
+        }
+    )
+
+    dataframe[
+        "version"
+    ] = dataframe[
+        "dataset_version"
+    ].fillna(
+        NA_TEXT
+    )
+
+    dataframe[
+        "normalization"
+    ] = dataframe[
+        "normalization_version"
+    ].fillna(
+        NA_TEXT
+    )
+
+    dataframe[
+        "imported"
+    ] = dataframe.apply(
+        lambda row: (
+            row.get(
+                "imported_at"
+            )
+            if row.get(
+                "imported_at"
+            )
+            else "NÃO REGISTRADO"
+        ),
+        axis=1,
+    )
+
+    preferred = [
+        "dataset_id",
+        "ticker",
+        "source",
+        "sessions_total",
+        "records_total",
+        "period_start",
+        "period_end",
+        "quality_status",
+        "version",
+        "imported",
+        "ingest_version",
+        "normalization",
+        "source_sha256",
+        "prepared",
+    ]
+
+    visible = [
+        column
+        for column in preferred
+        if column in dataframe.columns
+    ]
+
+    return dataframe[
+        visible
+    ].copy()
+
+
+def _inbox_frame(
+    rows: list[dict],
+) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
 
@@ -50,7 +139,6 @@ def _inventory_frame() -> pd.DataFrame:
         "name",
         "status",
         "size",
-        "modified_at",
         "sha256",
         "error",
     ]
@@ -58,8 +146,7 @@ def _inventory_frame() -> pd.DataFrame:
     visible = [
         column
         for column in preferred
-        if column
-        in dataframe.columns
+        if column in dataframe.columns
     ]
 
     return dataframe[
@@ -67,75 +154,18 @@ def _inventory_frame() -> pd.DataFrame:
     ].copy()
 
 
-def _render_dataset_period() -> None:
-    period = (
-        available_dataset_period()
-    )
-
-    st.divider()
-
-    section_title(
-        "Dataset processado",
-        (
-            "Período atualmente disponível "
-            "para pesquisas Trade 1."
-        ),
-    )
-
-    if not period.get(
-        "available"
-    ):
-        status_badge(
-            "Dataset",
-            "N/A",
-        )
-
-        st.info(
-            (
-                "Nenhum dataset processado "
-                "está disponível."
-            )
-        )
-
-        return
-
-    metric_cards(
-        [
-            (
-                "Pregões disponíveis",
-                format_integer(
-                    period.get(
-                        "sessions_total"
-                    )
-                ),
-            ),
-            (
-                "Período inicial",
-                str(
-                    period.get(
-                        "period_start"
-                    )
-                    or "N/A"
-                ),
-            ),
-            (
-                "Período final",
-                str(
-                    period.get(
-                        "period_end"
-                    )
-                    or "N/A"
-                ),
-            ),
-        ],
-        columns=3,
-    )
-
-
 def _progress_callback(
     progress_bar,
     status_box,
 ):
+    labels = {
+        "VALIDATION": "Validação",
+        "NORMALIZATION": "Normalização",
+        "SCANNER": "Scanner",
+        "TRAJECTORY_CACHE": "Trajetórias",
+        "ANALYTICS": "Analytics",
+    }
+
     def callback(
         stage: str,
         fraction: float,
@@ -154,130 +184,92 @@ def _progress_callback(
             )
         )
 
-        detail_parts = []
-
-        if details:
-            for key in (
-                "file",
-                "imported_reports",
-                "completed_batches",
-                "total_batches",
-                "remaining_batches",
-                "worker_id",
-                "batch_id",
-                "status",
-            ):
-                if (
-                    key in details
-                    and details[
-                        key
-                    ]
-                    is not None
-                ):
-                    detail_parts.append(
-                        (
-                            f"{key}="
-                            f"{details[key]}"
-                        )
-                    )
-
-        detail_text = (
-            " | ".join(
-                detail_parts
-            )
+        label = labels.get(
+            stage,
+            stage,
         )
 
-        message = stage
-
-        if detail_text:
-            message = (
-                f"{stage} — "
-                f"{detail_text}"
-            )
-
         status_box.info(
-            message
+            f"Etapa atual: {label}"
         )
 
     return callback
 
 
-def render() -> None:
-    page_header(
-        "Data",
+def _render_dataset_catalog() -> None:
+    datasets = (
+        list_available_datasets()
+    )
+
+    section_title(
+        "Datasets disponíveis",
         (
-            "Entrada e processamento oficial "
-            "de novos datasets do Operar Range."
+            "Datasets preparados e reconhecidos "
+            "pela plataforma para utilização "
+            "em pesquisas quantitativas."
         ),
     )
 
-    st.caption(
-        (
-            "Nesta V1 os arquivos são "
-            "copiados manualmente para "
-            "`data/inbox/`. A interface "
-            "valida e processa os arquivos "
-            "encontrados nessa pasta."
+    if not datasets:
+        st.info(
+            "Nenhum dataset disponível."
         )
-    )
+        return
 
-    inventory_rows = (
-        list_inbox_files()
-    )
-
-    new_count = sum(
+    ready_count = sum(
         1
-        for row in inventory_rows
+        for row in datasets
         if row.get(
-            "status"
+            "prepared_for_research"
         )
-        == "NEW"
     )
 
-    processed_count = sum(
-        1
-        for row in inventory_rows
-        if row.get(
-            "status"
+    sessions_total = sum(
+        int(
+            row.get(
+                "sessions_total"
+            )
+            or 0
         )
-        == "PROCESSED"
+        for row in datasets
     )
 
-    error_count = sum(
-        1
-        for row in inventory_rows
-        if row.get(
-            "status"
+    records_total = sum(
+        int(
+            row.get(
+                "records_total"
+            )
+            or 0
         )
-        == "ERROR"
+        for row in datasets
     )
 
     metric_cards(
         [
             (
-                "Arquivos encontrados",
+                "Datasets",
                 format_integer(
                     len(
-                        inventory_rows
+                        datasets
                     )
                 ),
             ),
             (
-                "Novos",
+                "Preparados para pesquisa",
                 format_integer(
-                    new_count
+                    ready_count
                 ),
             ),
             (
-                "Processados",
+                "Pregões",
                 format_integer(
-                    processed_count
+                    sessions_total
                 ),
             ),
             (
-                "Com erro",
+                "Registros",
                 format_integer(
-                    error_count
+                    records_total
                 ),
             ),
         ],
@@ -286,39 +278,254 @@ def render() -> None:
 
     st.divider()
 
-    section_title(
-        "Inbox",
+    frame = (
+        _dataset_display_frame(
+            datasets
+        )
+    )
+
+    dataframe_view(
+        frame,
+        height=320,
+    )
+
+    options = [
+        str(
+            row.get(
+                "dataset_key"
+            )
+        )
+        for row in datasets
+    ]
+
+    selected_key = st.selectbox(
+        "Dataset",
+        options=options,
+        key=(
+            "stage185_dataset_selection"
+        ),
+    )
+
+    selected = next(
         (
-            "Arquivos disponíveis em "
+            row
+            for row in datasets
+            if str(
+                row.get(
+                    "dataset_key"
+                )
+            )
+            == selected_key
+        ),
+        None,
+    )
+
+    if selected is None:
+        return
+
+    st.divider()
+
+    section_title(
+        "Detalhes do dataset"
+    )
+
+    imported_text = (
+        selected.get(
+            "imported_at"
+        )
+        or "NÃO REGISTRADO"
+    )
+
+    dataset_id_text = (
+        selected.get(
+            "dataset_id"
+        )
+        or "LEGACY DATASET"
+    )
+
+    prepared_text = (
+        "SIM"
+        if selected.get(
+            "prepared_for_research"
+        )
+        else "NÃO"
+    )
+
+    key_value_panel(
+        [
+            (
+                "Dataset ID",
+                dataset_id_text,
+            ),
+            (
+                "Versão",
+                _text(
+                    selected.get(
+                        "dataset_version"
+                    )
+                ),
+            ),
+            (
+                "Ativo",
+                _text(
+                    selected.get(
+                        "ticker"
+                    )
+                ),
+            ),
+            (
+                "Origem",
+                _text(
+                    selected.get(
+                        "source"
+                    )
+                ),
+            ),
+            (
+                "Fornecedor",
+                _text(
+                    selected.get(
+                        "provider"
+                    )
+                ),
+            ),
+            (
+                "Período",
+                (
+                    f"{_text(selected.get('period_start'))}"
+                    " → "
+                    f"{_text(selected.get('period_end'))}"
+                ),
+            ),
+            (
+                "Pregões",
+                format_integer(
+                    selected.get(
+                        "sessions_total"
+                    )
+                ),
+            ),
+            (
+                "Registros",
+                format_integer(
+                    selected.get(
+                        "records_total"
+                    )
+                ),
+            ),
+            (
+                "Importado em",
+                imported_text,
+            ),
+            (
+                "Ingest Version",
+                _text(
+                    selected.get(
+                        "ingest_version"
+                    )
+                ),
+            ),
+            (
+                "Normalization Version",
+                _text(
+                    selected.get(
+                        "normalization_version"
+                    )
+                ),
+            ),
+            (
+                "Scanner Motor",
+                _text(
+                    selected.get(
+                        "scanner_motor_version"
+                    )
+                ),
+            ),
+            (
+                "SHA-256",
+                _text(
+                    selected.get(
+                        "source_sha256"
+                    )
+                ),
+            ),
+            (
+                "Status",
+                _text(
+                    selected.get(
+                        "quality_status"
+                    )
+                ),
+            ),
+            (
+                "Preparado para pesquisa?",
+                prepared_text,
+            ),
+        ],
+    )
+
+    if selected.get(
+        "prepared_for_research"
+    ):
+        status_badge(
+            "Dataset",
+            "READY",
+        )
+    else:
+        status_badge(
+            "Dataset",
+            "NOT READY",
+        )
+
+
+def _render_inbox() -> None:
+    st.divider()
+
+    section_title(
+        "Entrada de novos dados",
+        (
+            "Nesta versão os arquivos são "
+            "colocados manualmente em "
             "`data/inbox/`."
         ),
     )
 
-    display = (
-        _inventory_frame()
+    st.caption(
+        (
+            "Upload pelo navegador ainda não "
+            "faz parte da Etapa 18.5."
+        )
     )
 
-    if display.empty:
+    rows = (
+        list_inbox_files()
+    )
+
+    if not rows:
         st.info(
             (
                 "Nenhum arquivo encontrado "
-                "em data/inbox/."
+                "para processamento."
             )
         )
-
-        _render_dataset_period()
         return
 
+    frame = (
+        _inbox_frame(
+            rows
+        )
+    )
+
     dataframe_view(
-        display,
-        height=320,
+        frame,
+        height=260,
     )
 
     selectable = [
         row[
             "name"
         ]
-        for row in inventory_rows
+        for row in rows
         if row.get(
             "status"
         )
@@ -332,52 +539,28 @@ def render() -> None:
         == ".zip"
     ]
 
-    st.divider()
-
-    section_title(
-        "Selecionar datasets",
-        (
-            "Nenhum processamento é iniciado "
-            "até a validação completa da "
-            "seleção."
-        ),
-    )
-
     if not selectable:
-        st.warning(
-            (
-                "Não há arquivos ZIP válidos "
-                "disponíveis para seleção."
-            )
-        )
-
-        _render_dataset_period()
         return
 
     selected = st.multiselect(
-        "Arquivos",
+        "Arquivos para processar",
         options=selectable,
         default=[
-            name
-            for name in selectable
-            if next(
-                (
-                    row.get(
-                        "status"
-                    )
-                    for row
-                    in inventory_rows
-                    if row.get(
-                        "name"
-                    )
-                    == name
-                ),
-                None,
+            row[
+                "name"
+            ]
+            for row in rows
+            if row.get(
+                "status"
             )
             == "NEW"
+            and row.get(
+                "extension"
+            )
+            == ".zip"
         ],
         key=(
-            "stage18_data_files"
+            "stage185_data_files"
         ),
     )
 
@@ -388,90 +571,52 @@ def render() -> None:
     )
 
     if selected:
-        if validation[
+        if validation.get(
             "valid"
-        ]:
+        ):
             status_badge(
                 "Validação",
                 "VALID",
             )
-
-            st.success(
-                (
-                    "Seleção válida. "
-                    "O processamento pode "
-                    "ser iniciado."
-                )
-            )
-
         else:
             status_badge(
                 "Validação",
                 "ERROR",
             )
 
-            for error in validation[
-                "errors"
-            ]:
+            for error in validation.get(
+                "errors",
+                [],
+            ):
                 st.error(
-                    error
+                    str(
+                        error
+                    )
                 )
-
-    else:
-        status_badge(
-            "Validação",
-            "PENDING",
-        )
-
-    st.divider()
-
-    section_title(
-        "Pipeline",
-        (
-            "O botão abaixo reutiliza os "
-            "motores homologados. A interface "
-            "não recalcula a lógica."
-        ),
-    )
-
-    st.markdown(
-        """
-1. **Validação**
-2. **Normalização**
-3. **Scanner**
-4. **Trade Database**
-5. **Trajectory Cache**
-6. **Analytics** — executado posteriormente dentro da pesquisa
-"""
-    )
 
     process_disabled = (
         not selected
-        or not validation[
+        or not validation.get(
             "valid"
-        ]
+        )
     )
 
     if st.button(
         "PROCESSAR DATASET",
         type="primary",
+        use_container_width=True,
         disabled=(
             process_disabled
         ),
-        use_container_width=True,
         key=(
-            "stage18_process_dataset"
+            "stage185_process_dataset"
         ),
     ):
-        progress_bar = (
-            st.progress(
-                0
-            )
+        progress_bar = st.progress(
+            0
         )
 
-        status_box = (
-            st.empty()
-        )
+        status_box = st.empty()
 
         callback = (
             _progress_callback(
@@ -481,28 +626,31 @@ def render() -> None:
         )
 
         try:
-            result = (
-                process_datasets(
-                    selected,
-                    progress_callback=(
-                        callback
-                    ),
-                )
+            process_datasets(
+                selected,
+                progress_callback=(
+                    callback
+                ),
             )
 
         except Exception as exc:
             progress_bar.empty()
 
             status_box.error(
-                (
-                    "Processamento falhou."
-                )
+                "Processamento não concluído."
             )
 
             st.error(
-                str(
-                    exc
+                (
+                    "Não foi possível preparar "
+                    "o dataset selecionado."
                 )
+            )
+
+            st.caption(
+                type(
+                    exc
+                ).__name__
             )
 
             return
@@ -512,89 +660,33 @@ def render() -> None:
         )
 
         status_box.success(
-            "Processamento concluído."
-        )
-
-        scanner = result.get(
-            "scanner"
-        ) or {}
-
-        trajectory = result.get(
-            "trajectory_cache"
-        ) or {}
-
-        scanner_summary = (
-            scanner.get(
-                "summary"
-            )
-            if isinstance(
-                scanner,
-                dict,
-            )
-            else {}
-        ) or {}
-
-        metric_cards(
-            [
-                (
-                    "Arquivos importados",
-                    format_integer(
-                        len(
-                            result.get(
-                                "imports",
-                                [],
-                            )
-                        )
-                    ),
-                ),
-                (
-                    "Pregões analisados",
-                    format_integer(
-                        scanner_summary.get(
-                            "pregoes_analisados"
-                        )
-                    ),
-                ),
-                (
-                    "Trade 1",
-                    format_integer(
-                        scanner_summary.get(
-                            "trade1_count"
-                        )
-                    ),
-                ),
-                (
-                    "Sem Trade 1",
-                    format_integer(
-                        scanner_summary.get(
-                            "sem_trade1_count"
-                        )
-                    ),
-                ),
-            ],
-            columns=4,
-        )
-
-        st.success(
-            (
-                "Dataset preparado para "
-                "utilização no Research "
-                "Builder."
-            )
-        )
-
-        st.caption(
-            (
-                "Analytics permanece "
-                f"{result.get('analytics_status', 'N/A')} "
-                "até existir uma pesquisa "
-                "executada."
-            )
+            "Dataset preparado."
         )
 
         st.cache_data.clear()
 
-    _render_dataset_period()
+        st.success(
+            (
+                "O dataset está disponível "
+                "para novas pesquisas."
+            )
+        )
+
+        st.rerun()
+
+
+def render() -> None:
+    page_header(
+        "Data Manager",
+        (
+            "Gerenciamento dos datasets "
+            "utilizados pelo Operar Range."
+        ),
+    )
+
+    _render_dataset_catalog()
+
+    _render_inbox()
 
 
 if __name__ == "__main__":

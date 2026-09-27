@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -31,19 +32,66 @@ from operar_range.research_workspace import (
 )
 
 
+def _missing(
+    value: Any,
+) -> bool:
+    if value is None:
+        return True
+
+    if isinstance(
+        value,
+        float,
+    ):
+        return math.isnan(
+            value
+        )
+
+    try:
+        result = pd.isna(
+            value
+        )
+
+        if isinstance(
+            result,
+            bool,
+        ):
+            return result
+
+    except Exception:
+        pass
+
+    return False
+
+
 def _as_text(
     value: Any,
 ) -> str:
-    if value is None:
+    if _missing(
+        value
+    ):
         return NA_TEXT
 
-    return str(value)
+    text = str(
+        value
+    ).strip()
+
+    if text.lower() in {
+        "nan",
+        "none",
+        "nat",
+        "",
+    }:
+        return NA_TEXT
+
+    return text
 
 
 def _duration_text(
     seconds: Any,
 ) -> str:
-    if seconds is None:
+    if _missing(
+        seconds
+    ):
         return NA_TEXT
 
     try:
@@ -54,6 +102,14 @@ def _duration_text(
         TypeError,
         ValueError,
     ):
+        return NA_TEXT
+
+    if not math.isfinite(
+        value
+    ):
+        return NA_TEXT
+
+    if value < 0:
         return NA_TEXT
 
     if value < 60:
@@ -87,6 +143,98 @@ def _duration_text(
         f"{hours}h "
         f"{remaining_minutes}m"
     )
+
+
+def _format_datetime(
+    value: Any,
+) -> str:
+    if _missing(
+        value
+    ):
+        return NA_TEXT
+
+    try:
+        parsed = datetime.fromisoformat(
+            str(
+                value
+            ).replace(
+                "Z",
+                "+00:00",
+            )
+        )
+
+        return parsed.strftime(
+            "%d/%m/%Y %H:%M"
+        )
+
+    except Exception:
+        return _as_text(
+            value
+        )
+
+
+def _research_name(
+    row: dict[str, Any],
+) -> str:
+    value = row.get(
+        "research_name"
+    )
+
+    if not _missing(
+        value
+    ):
+        return str(
+            value
+        )
+
+    return (
+        "Pesquisa anterior à Etapa 18.5"
+    )
+
+
+def _model_name(
+    row: dict[str, Any],
+) -> str:
+    value = row.get(
+        "model_name"
+    )
+
+    if _missing(
+        value
+    ):
+        return "NÃO REGISTRADO"
+
+    return str(
+        value
+    )
+
+
+def _dataset_name(
+    row: dict[str, Any],
+) -> str:
+    dataset_id = row.get(
+        "dataset_id"
+    )
+
+    if not _missing(
+        dataset_id
+    ):
+        return str(
+            dataset_id
+        )
+
+    dataset_key = row.get(
+        "dataset_key"
+    )
+
+    if not _missing(
+        dataset_key
+    ):
+        return str(
+            dataset_key
+        )
+
+    return "NÃO REGISTRADO"
 
 
 def _elapsed_seconds(
@@ -217,23 +365,19 @@ def _distributed_monitor(
     )
 
     try:
-        status = (
-            distributed_status(
-                distributed_root=(
-                    paths[
-                        "distributed_root"
-                    ]
-                ),
-                run_id=run_id,
-            )
+        status = distributed_status(
+            distributed_root=(
+                paths[
+                    "distributed_root"
+                ]
+            ),
+            run_id=run_id,
         )
 
     except Exception:
         return {
             "available": False,
-            "run_id": (
-                run_id
-            ),
+            "run_id": run_id,
             "batches_total": (
                 manifest.get(
                     "batches_total"
@@ -251,16 +395,12 @@ def _distributed_monitor(
             "workers_total": None,
         }
 
-    batches_total = (
-        status.get(
-            "batches_total"
-        )
+    batches_total = status.get(
+        "batches_total"
     )
 
-    completed = (
-        status.get(
-            "completed"
-        )
+    completed = status.get(
+        "completed"
     )
 
     remaining = None
@@ -369,58 +509,85 @@ def _history_frame(
     if not rows:
         return pd.DataFrame()
 
-    dataframe = pd.DataFrame(
-        rows
+    active_id = st.session_state.get(
+        "active_research_id"
     )
 
-    preferred = [
-        "research_id",
-        "status",
-        "current_stage",
-        "created_at",
-        "period_start",
-        "period_end",
-        "family",
-        "generation",
-        "experiments_valid",
-        "execution_units_total",
-        "batches_total",
-        "duration_seconds",
-        "lineage_match",
-    ]
+    output = []
 
-    visible = [
-        column
-        for column in preferred
-        if column
-        in dataframe.columns
-    ]
-
-    display = dataframe[
-        visible
-    ].copy()
-
-    if (
-        "duration_seconds"
-        in display.columns
-    ):
-        display[
-            "duration"
-        ] = display[
-            "duration_seconds"
-        ].map(
-            _duration_text
-        )
-
-        display = (
-            display.drop(
-                columns=[
-                    "duration_seconds"
-                ]
+    for row in rows:
+        research_id = str(
+            row.get(
+                "research_id"
             )
+            or ""
         )
 
-    return display
+        output.append(
+            {
+                "Pesquisa": (
+                    _research_name(
+                        row
+                    )
+                ),
+                "Research ID": (
+                    research_id
+                ),
+                "Modelo": (
+                    _model_name(
+                        row
+                    )
+                ),
+                "Período": (
+                    f"{_as_text(row.get('period_start'))}"
+                    " → "
+                    f"{_as_text(row.get('period_end'))}"
+                ),
+                "Status": (
+                    _as_text(
+                        row.get(
+                            "status"
+                        )
+                    )
+                ),
+                "Experimentos": (
+                    row.get(
+                        "experiments_valid"
+                    )
+                ),
+                "Duração": (
+                    _duration_text(
+                        row.get(
+                            "duration_seconds"
+                        )
+                    )
+                ),
+                "Criada em": (
+                    _format_datetime(
+                        row.get(
+                            "created_at"
+                        )
+                    )
+                ),
+                "Ativa": (
+                    "SIM"
+                    if research_id
+                    == str(
+                        active_id
+                        or ""
+                    )
+                    else ""
+                ),
+            }
+        )
+
+    dataframe = pd.DataFrame(
+        output
+    )
+
+    return dataframe.fillna(
+        NA_TEXT
+    )
 
 
 def _render_status_counts(
@@ -508,9 +675,9 @@ def _render_monitor(
     manifest: dict[str, Any],
 ) -> None:
     section_title(
-        "Run Monitor",
+        "Execução",
         (
-            "Estado persistido da execução "
+            "Acompanhamento da pesquisa "
             "selecionada."
         ),
     )
@@ -519,11 +686,11 @@ def _render_monitor(
         manifest.get(
             "status"
         )
-        or "N/A"
+        or NA_TEXT
     )
 
     status_badge(
-        "Research status",
+        "Status da pesquisa",
         status,
     )
 
@@ -537,11 +704,9 @@ def _render_monitor(
     elapsed = None
 
     if status == "RUNNING":
-        elapsed = (
-            _elapsed_seconds(
-                manifest.get(
-                    "started_at"
-                )
+        elapsed = _elapsed_seconds(
+            manifest.get(
+                "started_at"
             )
         )
 
@@ -563,22 +728,20 @@ def _render_monitor(
         ):
             elapsed = None
 
-    eta = (
-        _eta_seconds(
-            elapsed_seconds=(
-                elapsed
-            ),
-            completed=(
-                monitor.get(
-                    "completed"
-                )
-            ),
-            total=(
-                monitor.get(
-                    "batches_total"
-                )
-            ),
-        )
+    eta = _eta_seconds(
+        elapsed_seconds=(
+            elapsed
+        ),
+        completed=(
+            monitor.get(
+                "completed"
+            )
+        ),
+        total=(
+            monitor.get(
+                "batches_total"
+            )
+        ),
     )
 
     metric_cards(
@@ -600,34 +763,10 @@ def _render_monitor(
                 ),
             ),
             (
-                "Batches total",
-                format_integer(
-                    monitor.get(
-                        "batches_total"
-                    )
-                ),
-            ),
-            (
                 "Execution Units",
                 format_integer(
                     monitor.get(
                         "execution_units_total"
-                    )
-                ),
-            ),
-            (
-                "Workers",
-                format_integer(
-                    monitor.get(
-                        "workers_total"
-                    )
-                ),
-            ),
-            (
-                "Retries",
-                format_integer(
-                    monitor.get(
-                        "retries"
                     )
                 ),
             ),
@@ -644,7 +783,7 @@ def _render_monitor(
                 ),
             ),
         ],
-        columns=4,
+        columns=5,
     )
 
     current_stage = (
@@ -661,308 +800,235 @@ def _render_monitor(
             )
         )
 
-    if (
-        monitor.get(
-            "failed_final"
-        )
-        is not None
-        and int(
-            monitor[
-                "failed_final"
-            ]
-        )
-        > 0
-    ):
-        st.error(
-            (
-                "A execução distribuída "
-                "possui falhas finais."
-            )
-        )
-
     if status == "FAILED":
         st.error(
             (
-                f"{manifest.get('error_type') or 'ERROR'}: "
-                f"{manifest.get('error_message') or 'N/A'}"
+                "A pesquisa não foi concluída. "
+                "O registro da falha foi "
+                "preservado para análise."
             )
-        )
-
-
-def _render_lineage(
-    manifest: dict[str, Any],
-) -> None:
-    section_title(
-        "Lineage",
-        (
-            "Hashes e identificação da "
-            "execução preservados no "
-            "Research ID."
-        ),
-    )
-
-    lineage = (
-        manifest.get(
-            "lineage_match"
-        )
-    )
-
-    if lineage is True:
-        lineage_text = "TRUE"
-
-    elif lineage is False:
-        lineage_text = "FALSE"
-
-    else:
-        lineage_text = "N/A"
-
-    status_badge(
-        "LINEAGE_MATCH",
-        lineage_text,
-    )
-
-    repeated = (
-        manifest.get(
-            "quantitative_execution_repeated"
-        )
-    )
-
-    if repeated is False:
-        repeated_text = "FALSE"
-
-    elif repeated is True:
-        repeated_text = "TRUE"
-
-    else:
-        repeated_text = "N/A"
-
-    status_badge(
-        "Quantitative execution repeated",
-        repeated_text,
-    )
-
-    key_value_panel(
-        [
-            (
-                "Research definition SHA-256",
-                _as_text(
-                    manifest.get(
-                        "research_definition_sha256"
-                    )
-                ),
-            ),
-            (
-                "Experiment manifest SHA-256",
-                _as_text(
-                    manifest.get(
-                        "experiment_manifest_sha256"
-                    )
-                ),
-            ),
-            (
-                "Distributed results SHA-256",
-                _as_text(
-                    manifest.get(
-                        "distributed_results_sha256"
-                    )
-                ),
-            ),
-            (
-                "Valid experiments SHA-256",
-                _as_text(
-                    manifest.get(
-                        "source_valid_experiments_sha256"
-                    )
-                ),
-            ),
-            (
-                "Trajectory manifest SHA-256",
-                _as_text(
-                    manifest.get(
-                        "trajectory_manifest_sha256"
-                    )
-                ),
-            ),
-            (
-                "Rule Set SHA-256",
-                _as_text(
-                    manifest.get(
-                        "rule_set_sha256"
-                    )
-                ),
-            ),
-            (
-                "Motor version",
-                _as_text(
-                    manifest.get(
-                        "motor_version"
-                    )
-                ),
-            ),
-            (
-                "Rules version",
-                _as_text(
-                    manifest.get(
-                        "rules_version"
-                    )
-                ),
-            ),
-        ],
-    )
-
-
-def _render_artifacts(
-    research_id: str,
-) -> None:
-    section_title(
-        "Artifacts",
-        (
-            "Recursos isolados desta "
-            "pesquisa."
-        ),
-    )
-
-    paths = (
-        research_result_paths(
-            research_id
-        )
-    )
-
-    rows = []
-
-    for name, value in (
-        paths.items()
-    ):
-        path = Path(
-            value
-        )
-
-        rows.append(
-            {
-                "artifact": name,
-                "exists": (
-                    path.exists()
-                ),
-                "path": value,
-                "size_bytes": (
-                    path.stat().st_size
-                    if path.exists()
-                    and path.is_file()
-                    else None
-                ),
-            }
-        )
-
-    dataframe = pd.DataFrame(
-        rows
-    )
-
-    if not dataframe.empty:
-        dataframe[
-            "status"
-        ] = dataframe[
-            "exists"
-        ].map(
-            {
-                True: "AVAILABLE",
-                False: "MISSING",
-            }
-        )
-
-        visible = [
-            "artifact",
-            "status",
-            "size_bytes",
-            "path",
-        ]
-
-        dataframe_view(
-            dataframe[
-                visible
-            ],
-            height=360,
         )
 
 
 def _render_definition(
     research_id: str,
-) -> None:
+) -> dict[str, Any]:
     try:
         definition = (
             load_research_definition(
                 research_id
             )
         )
+
     except Exception:
         st.info(
-            "Definição indisponível."
+            (
+                "A definição desta pesquisa "
+                "não está disponível."
+            )
         )
-        return
+
+        return {}
 
     section_title(
-        "Research Definition"
+        "Pesquisa"
+    )
+
+    research_name = (
+        definition.get(
+            "research_name"
+        )
+        or "Pesquisa anterior à Etapa 18.5"
+    )
+
+    model_name = (
+        definition.get(
+            "model_name"
+        )
+        or "NÃO REGISTRADO"
+    )
+
+    dataset_name = (
+        definition.get(
+            "dataset_id"
+        )
+        or definition.get(
+            "dataset_key"
+        )
+        or "NÃO REGISTRADO"
+    )
+
+    hypothesis = (
+        definition.get(
+            "hypothesis"
+        )
+        or "NÃO REGISTRADA"
     )
 
     key_value_panel(
         [
             (
-                "Strategy",
-                _as_text(
-                    definition.get(
+                "Nome",
+                research_name,
+            ),
+            (
+                "Modelo",
+                model_name,
+            ),
+            (
+                "Hipótese",
+                hypothesis,
+            ),
+            (
+                "Dataset",
+                dataset_name,
+            ),
+            (
+                "Período",
+                (
+                    f"{_as_text(definition.get('period_start'))}"
+                    " → "
+                    f"{_as_text(definition.get('period_end'))}"
+                ),
+            ),
+            (
+                "Estratégia",
+                (
+                    "Trade 1"
+                    if definition.get(
                         "strategy"
                     )
-                ),
-            ),
-            (
-                "Family",
-                _as_text(
-                    definition.get(
-                        "family"
+                    == "TRADE_1"
+                    else _as_text(
+                        definition.get(
+                            "strategy"
+                        )
                     )
                 ),
             ),
             (
-                "Generation",
+                "Descrição",
                 _as_text(
                     definition.get(
-                        "generation"
-                    )
-                ),
-            ),
-            (
-                "Period start",
-                _as_text(
-                    definition.get(
-                        "period_start"
-                    )
-                ),
-            ),
-            (
-                "Period end",
-                _as_text(
-                    definition.get(
-                        "period_end"
-                    )
-                ),
-            ),
-            (
-                "Batch size",
-                _as_text(
-                    definition.get(
-                        "batch_size"
+                        "description"
                     )
                 ),
             ),
         ],
     )
 
+    return definition
+
+
+def _render_technical_details(
+    research_id: str,
+    manifest: dict[str, Any],
+    definition: dict[str, Any],
+) -> None:
     with st.expander(
-        "Parâmetros completos",
+        "Detalhes técnicos",
         expanded=False,
     ):
-        st.json(
-            definition
+        lineage = manifest.get(
+            "lineage_match"
         )
+
+        status_badge(
+            "LINEAGE_MATCH",
+            (
+                "TRUE"
+                if lineage is True
+                else (
+                    "FALSE"
+                    if lineage is False
+                    else "N/A"
+                )
+            ),
+        )
+
+        key_value_panel(
+            [
+                (
+                    "Motor version",
+                    _as_text(
+                        manifest.get(
+                            "motor_version"
+                        )
+                    ),
+                ),
+                (
+                    "Rules version",
+                    _as_text(
+                        manifest.get(
+                            "rules_version"
+                        )
+                    ),
+                ),
+                (
+                    "Research definition SHA-256",
+                    _as_text(
+                        manifest.get(
+                            "research_definition_sha256"
+                        )
+                    ),
+                ),
+                (
+                    "Experiment manifest SHA-256",
+                    _as_text(
+                        manifest.get(
+                            "experiment_manifest_sha256"
+                        )
+                    ),
+                ),
+                (
+                    "Distributed results SHA-256",
+                    _as_text(
+                        manifest.get(
+                            "distributed_results_sha256"
+                        )
+                    ),
+                ),
+            ],
+        )
+
+        paths = research_result_paths(
+            research_id
+        )
+
+        artifact_rows = []
+
+        for name, value in paths.items():
+            path = Path(
+                value
+            )
+
+            artifact_rows.append(
+                {
+                    "Recurso": name,
+                    "Status": (
+                        "DISPONÍVEL"
+                        if path.exists()
+                        else "AUSENTE"
+                    ),
+                    "Caminho": value,
+                }
+            )
+
+        if artifact_rows:
+            dataframe_view(
+                pd.DataFrame(
+                    artifact_rows
+                ),
+                height=300,
+            )
+
+        with st.expander(
+            "Definição completa",
+            expanded=False,
+        ):
+            st.json(
+                definition
+            )
 
 
 def _open_result_button(
@@ -977,9 +1043,9 @@ def _open_result_button(
     ):
         st.info(
             (
-                "Abrir Resultado estará "
-                "disponível após a pesquisa "
-                "ser concluída."
+                "O resultado poderá ser aberto "
+                "quando a pesquisa estiver "
+                "concluída."
             )
         )
         return
@@ -1012,48 +1078,49 @@ def _open_result_button(
     if missing:
         st.error(
             (
-                "Pesquisa marcada como "
-                "COMPLETED, porém existem "
-                "artifacts ausentes: "
-                + ", ".join(
-                    missing
-                )
+                "Esta pesquisa está marcada "
+                "como concluída, mas os "
+                "resultados necessários não "
+                "estão disponíveis."
             )
         )
         return
+
+    active_id = st.session_state.get(
+        "active_research_id"
+    )
+
+    if (
+        str(
+            active_id
+            or ""
+        )
+        == research_id
+    ):
+        st.success(
+            "Esta é a pesquisa ativa."
+        )
 
     if st.button(
         "ABRIR RESULTADO",
         type="primary",
         use_container_width=True,
         key=(
-            "stage18_open_result_"
+            "stage185_open_result_"
             + research_id
         ),
     ):
-        #
-        # O Research Terminal continuará
-        # sendo a área de resultados.
-        #
-        # O main.py consumirá essa intenção
-        # antes de criar o widget de
-        # navegação, evitando modificar um
-        # widget depois da instanciação.
-        #
         st.session_state[
             "active_research_id"
         ] = research_id
 
         st.session_state[
+            "stage18_current_research_id"
+        ] = research_id
+
+        st.session_state[
             "requested_terminal_page"
         ] = "Overview"
-
-        st.success(
-            (
-                "Resultado selecionado. "
-                "Abrindo Research Workspace..."
-            )
-        )
 
         st.switch_page(
             "main.py"
@@ -1064,27 +1131,70 @@ def render() -> None:
     page_header(
         "Pesquisas",
         (
-            "Run Monitor e histórico "
-            "persistente das pesquisas "
-            "criadas pelo Workspace."
+            "Histórico, acompanhamento e "
+            "resultados das pesquisas "
+            "quantitativas."
         ),
     )
 
-    rows = (
-        list_researches()
-    )
+    rows = list_researches()
 
     _render_status_counts(
         rows
     )
 
+    active_id = st.session_state.get(
+        "active_research_id"
+    )
+
+    st.divider()
+
+    if active_id:
+        active_row = next(
+            (
+                row
+                for row in rows
+                if str(
+                    row.get(
+                        "research_id"
+                    )
+                )
+                == str(
+                    active_id
+                )
+            ),
+            None,
+        )
+
+        if active_row is not None:
+            st.success(
+                (
+                    "Pesquisa ativa: "
+                    f"{_research_name(active_row)} "
+                    f"({active_id})"
+                )
+            )
+        else:
+            st.info(
+                (
+                    "Existe um Research ID ativo, "
+                    "mas ele não foi encontrado "
+                    "no histórico atual."
+                )
+            )
+
+    else:
+        st.info(
+            "Nenhuma pesquisa ativa."
+        )
+
     st.divider()
 
     section_title(
-        "Research History",
+        "Histórico de pesquisas",
         (
-            "Cada pesquisa possui Research ID "
-            "próprio e artifacts isolados."
+            "Pesquisas criadas pelo "
+            "Research Workspace."
         ),
     )
 
@@ -1092,15 +1202,13 @@ def render() -> None:
         st.info(
             (
                 "Nenhuma pesquisa foi criada "
-                "pelo Workspace."
+                "até o momento."
             )
         )
         return
 
-    history = (
-        _history_frame(
-            rows
-        )
+    history = _history_frame(
+        rows
     )
 
     if not history.empty:
@@ -1121,33 +1229,50 @@ def render() -> None:
         )
     ]
 
-    current_id = st.session_state.get(
-        "stage18_current_research_id"
+    default_id = (
+        str(
+            active_id
+        )
+        if active_id
+        and str(
+            active_id
+        )
+        in research_ids
+        else research_ids[
+            0
+        ]
     )
 
-    default_index = 0
-
-    if (
-        current_id
-        and current_id
-        in research_ids
-    ):
-        default_index = (
-            research_ids.index(
-                current_id
-            )
-        )
-
     selected = st.selectbox(
-        "Abrir pesquisa",
+        "Selecionar pesquisa",
         options=(
             research_ids
         ),
         index=(
-            default_index
+            research_ids.index(
+                default_id
+            )
+        ),
+        format_func=lambda value: (
+            (
+                _research_name(
+                    next(
+                        row
+                        for row in rows
+                        if str(
+                            row.get(
+                                "research_id"
+                            )
+                        )
+                        == value
+                    )
+                )
+                + " — "
+                + value
+            )
         ),
         key=(
-            "stage18_history_selection"
+            "stage185_history_selection"
         ),
     )
 
@@ -1155,35 +1280,42 @@ def render() -> None:
         return
 
     try:
-        manifest = (
-            load_research_manifest(
-                selected
-            )
+        manifest = load_research_manifest(
+            selected
         )
 
-    except Exception as exc:
+    except Exception:
         st.error(
             (
                 "Não foi possível carregar "
-                "o manifesto da pesquisa."
+                "esta pesquisa."
             )
         )
-
-        st.caption(
-            str(
-                exc
-            )
-        )
-
         return
+
+    selected_row = next(
+        (
+            row
+            for row in rows
+            if str(
+                row.get(
+                    "research_id"
+                )
+            )
+            == selected
+        ),
+        {},
+    )
 
     st.divider()
 
     metric_cards(
         [
             (
-                "Research ID",
-                selected,
+                "Pesquisa",
+                _research_name(
+                    selected_row
+                ),
             ),
             (
                 "Status",
@@ -1194,26 +1326,24 @@ def render() -> None:
                 ),
             ),
             (
-                "Experimentos gerados",
+                "Modelo",
+                _model_name(
+                    selected_row
+                ),
+            ),
+            (
+                "Pregões",
                 format_integer(
                     manifest.get(
-                        "experiments_generated"
+                        "sessions_total"
                     )
                 ),
             ),
             (
-                "Experimentos válidos",
+                "Experimentos",
                 format_integer(
                     manifest.get(
                         "experiments_valid"
-                    )
-                ),
-            ),
-            (
-                "Experimentos inválidos",
-                format_integer(
-                    manifest.get(
-                        "experiments_invalid"
                     )
                 ),
             ),
@@ -1222,14 +1352,6 @@ def render() -> None:
                 format_integer(
                     manifest.get(
                         "execution_units_total"
-                    )
-                ),
-            ),
-            (
-                "Batches",
-                format_integer(
-                    manifest.get(
-                        "batches_total"
                     )
                 ),
             ),
@@ -1254,19 +1376,7 @@ def render() -> None:
 
     st.divider()
 
-    _render_definition(
-        selected
-    )
-
-    st.divider()
-
-    _render_lineage(
-        manifest
-    )
-
-    st.divider()
-
-    _render_artifacts(
+    definition = _render_definition(
         selected
     )
 
@@ -1275,6 +1385,14 @@ def render() -> None:
     _open_result_button(
         selected,
         manifest,
+    )
+
+    st.divider()
+
+    _render_technical_details(
+        selected,
+        manifest,
+        definition,
     )
 
 

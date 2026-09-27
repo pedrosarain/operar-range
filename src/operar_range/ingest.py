@@ -4,6 +4,7 @@ import hashlib
 import json
 import shutil
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import polars as pl
@@ -24,6 +25,49 @@ VENDOR_COLUMNS = [
     "trade_type",
     "aft",
 ]
+
+
+INGEST_VERSION = "ingest-v1"
+NORMALIZATION_VERSION = "vendor-normalization-v1"
+DATASET_VERSION = 1
+
+
+def utc_now() -> str:
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+    )
+
+
+def _canonical_json(value: dict) -> str:
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+
+
+def _dataset_id(
+    *,
+    ticker: str | None,
+    period_start: str,
+    period_end: str,
+    source_sha256: str,
+) -> str:
+    payload = {
+        "ticker": ticker,
+        "period_start": period_start,
+        "period_end": period_end,
+        "source_sha256": source_sha256,
+    }
+
+    digest = hashlib.sha256(
+        _canonical_json(payload).encode("utf-8")
+    ).hexdigest()
+
+    return "DS-" + digest[:12]
 
 
 def read_tick_sample(path: str | Path) -> pl.DataFrame:
@@ -208,6 +252,7 @@ def _build_quality_report(
     normalized_parquet: Path,
     raw_csv: Path,
     raw_zip: Path,
+    imported_at: str,
 ) -> dict:
     lf = pl.scan_parquet(normalized_parquet)
 
@@ -218,6 +263,7 @@ def _build_quality_report(
         lf.select(
             pl.len().alias("row_count"),
             pl.col("ticker").n_unique().alias("ticker_count"),
+            pl.col("ticker").first().alias("ticker"),
             pl.col("date").n_unique().alias("date_count"),
             pl.col("timestamp").min().alias("timestamp_min"),
             pl.col("timestamp").max().alias("timestamp_max"),
@@ -330,11 +376,39 @@ def _build_quality_report(
             gaps["irregular_trade_jumps"]
         )
 
+    zip_sha256 = sha256_file(raw_zip)
+    csv_sha256 = sha256_file(raw_csv)
+
+    ticker = (
+        str(summary["ticker"])
+        if summary["ticker"] is not None
+        else None
+    )
+
+    period_start = str(summary["timestamp_min"])
+    period_end = str(summary["timestamp_max"])
+
+    dataset_id = _dataset_id(
+        ticker=ticker,
+        period_start=period_start,
+        period_end=period_end,
+        source_sha256=zip_sha256,
+    )
+
     report = {
+        "dataset_id": dataset_id,
+        "dataset_version": DATASET_VERSION,
+        "imported_at": imported_at,
+        "imported_at_status": "RECORDED",
+        "ingest_version": INGEST_VERSION,
+        "normalization_version": NORMALIZATION_VERSION,
+        "source_sha256": zip_sha256,
+        "source_provider": None,
+        "ticker": ticker,
         "source_zip": raw_zip.name,
         "source_csv": raw_csv.name,
-        "zip_sha256": sha256_file(raw_zip),
-        "csv_sha256": sha256_file(raw_csv),
+        "zip_sha256": zip_sha256,
+        "csv_sha256": csv_sha256,
         "row_count": int(summary["row_count"]),
         "ticker_count": int(summary["ticker_count"]),
         "date_count": int(summary["date_count"]),
@@ -372,12 +446,16 @@ def normalize_vendor_csv(
     output_parquet: str | Path,
     report_path: str | Path,
     raw_zip: str | Path,
+    imported_at: str | None = None,
 ) -> dict:
     """Normalize one RAW vendor CSV into Parquet."""
     raw_csv = Path(raw_csv)
     output_parquet = Path(output_parquet)
     report_path = Path(report_path)
     raw_zip = Path(raw_zip)
+
+    if imported_at is None:
+        imported_at = utc_now()
 
     output_parquet.parent.mkdir(
         parents=True,
@@ -402,6 +480,7 @@ def normalize_vendor_csv(
         normalized_parquet=output_parquet,
         raw_csv=raw_csv,
         raw_zip=raw_zip,
+        imported_at=imported_at,
     )
 
     with report_path.open(
@@ -444,6 +523,7 @@ def import_tick_zip(
     reports_dir = data_root / "reports"
 
     preserved_zip = raw_zip_dir / zip_path.name
+    imported_at = utc_now()
 
     _copy_raw_file_without_overwrite(
         zip_path,
@@ -490,6 +570,7 @@ def import_tick_zip(
                 output_parquet=parquet_path,
                 report_path=report_path,
                 raw_zip=preserved_zip,
+                imported_at=imported_at,
             )
 
             results.append(report)
