@@ -352,6 +352,138 @@ def _render_metrics(
     )
 
 
+def _render_trade_lifecycle(
+    results: list[dict],
+) -> None:
+    section_title(
+        "Trade Lifecycle",
+        (
+            "Resultados do Trade 1, Trade 2 "
+            "e ciclo operacional completo."
+        ),
+    )
+
+    if not results:
+        st.info(
+            (
+                "Resultados por sessão "
+                "indisponíveis para este "
+                "experimento."
+            )
+        )
+        return
+
+    rows = []
+
+    for row in results:
+        trade1_result = row.get(
+            "trade1_result_points"
+        )
+
+        #
+        # Compatibilidade com pesquisas
+        # anteriores à Etapa 19.
+        #
+        if (
+            trade1_result is None
+            and row.get(
+                "total_weighted_points"
+            )
+            is not None
+        ):
+            trade1_result = row.get(
+                "total_weighted_points"
+            )
+
+        trade2_result = row.get(
+            "trade2_result_points"
+        )
+
+        consolidated = row.get(
+            "consolidated_result_points"
+        )
+
+        if (
+            consolidated is None
+            and trade1_result is not None
+        ):
+            consolidated = trade1_result
+
+        rows.append(
+            {
+                "Pregão": (
+                    as_text(
+                        row.get(
+                            "date"
+                        )
+                    )
+                ),
+                "Trade 1": (
+                    format_points(
+                        trade1_result
+                    )
+                    if trade1_result
+                    is not None
+                    else NA_TEXT
+                ),
+                "Trade 2 elegível": (
+                    format_boolean(
+                        row.get(
+                            "trade2_eligible"
+                        )
+                    )
+                    if row.get(
+                        "trade2_eligible"
+                    )
+                    is not None
+                    else NA_TEXT
+                ),
+                "Trade 2 ocorreu": (
+                    format_boolean(
+                        row.get(
+                            "trade2_occurred"
+                        )
+                    )
+                    if row.get(
+                        "trade2_occurred"
+                    )
+                    is not None
+                    else NA_TEXT
+                ),
+                "Trade 2": (
+                    format_points(
+                        trade2_result
+                    )
+                    if trade2_result
+                    is not None
+                    else NA_TEXT
+                ),
+                "Resultado consolidado": (
+                    format_points(
+                        consolidated
+                    )
+                    if consolidated
+                    is not None
+                    else NA_TEXT
+                ),
+                "Saída Trade 2": (
+                    as_text(
+                        row.get(
+                            "trade2_final_reason"
+                        )
+                    )
+                ),
+            }
+        )
+
+    dataframe_view(
+        pd.DataFrame(
+            rows
+        ),
+        height=360,
+    )
+
+
 def _render_experiment_detail(
     experiment_id: str,
 ) -> None:
@@ -366,6 +498,10 @@ def _render_experiment_detail(
     metrics = detail.get(
         "metrics"
     )
+
+    results = detail.get(
+        "results"
+    ) or []
 
     st.divider()
 
@@ -402,6 +538,12 @@ def _render_experiment_detail(
 
     _render_metrics(
         metrics
+    )
+
+    st.divider()
+
+    _render_trade_lifecycle(
+        results
     )
 
     with st.expander(

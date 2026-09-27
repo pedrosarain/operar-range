@@ -47,9 +47,7 @@ US_OPEN_BREAKOUT_V1 = {
         },
         {
             "name": "Trade 2",
-            "status": (
-                "EM_DESENVOLVIMENTO"
-            ),
+            "status": "ACTIVE",
         },
     ],
     #

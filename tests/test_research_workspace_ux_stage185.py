@@ -153,7 +153,7 @@ def test_new_research_model_explains_hypothesis():
     )
 
 
-def test_trade2_is_not_active():
+def test_trade2_is_part_of_official_model():
     source = (
         APP_ROOT
         / "src/operar_range/quantitative_models.py"
@@ -167,7 +167,7 @@ def test_trade2_is_not_active():
     )
 
     assert (
-        '"EM_DESENVOLVIMENTO"'
+        '"status": "ACTIVE"'
         in source
     )
 

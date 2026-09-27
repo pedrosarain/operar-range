@@ -997,6 +997,7 @@ def experiment_detail(
     ] = {
         "experiment": None,
         "metrics": None,
+        "results": [],
     }
 
     if not experiments.empty:
@@ -1034,6 +1035,35 @@ def experiment_detail(
                 subset.iloc[0]
                 .to_dict()
             )
+
+    results = experiment_results()
+
+    if (
+        not results.empty
+        and "experiment_id"
+        in results.columns
+    ):
+        subset = results[
+            results[
+                "experiment_id"
+            ]
+            == experiment_id
+        ].copy()
+
+        if (
+            not subset.empty
+            and "date"
+            in subset.columns
+        ):
+            subset = subset.sort_values(
+                "date"
+            )
+
+        result[
+            "results"
+        ] = subset.to_dict(
+            orient="records"
+        )
 
     return result
 

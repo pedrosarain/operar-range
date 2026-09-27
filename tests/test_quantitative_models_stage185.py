@@ -86,7 +86,7 @@ def test_model_contains_required_components():
 
     assert (
         components["Trade 2"]
-        == "EM_DESENVOLVIMENTO"
+        == "ACTIVE"
     )
 
 

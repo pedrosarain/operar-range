@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,10 @@ from operar_range.runner import (
 )
 from operar_range.trajectory import (
     read_trajectory_parquet,
+)
+from operar_range.trade_lifecycle import (
+    TradeLifecycleConfig,
+    simulate_trade_lifecycle,
 )
 
 
@@ -61,6 +66,103 @@ BATCH_RESULT_SCHEMA = pa.schema(
             "total_weighted_points",
             pa.float64(),
         ),
+
+        # Trade Lifecycle V1.
+        #
+        # Compatibilidade obrigatória:
+        # total_weighted_points continua
+        # representando exclusivamente
+        # o Trade 1.
+        (
+            "trade1_result_points",
+            pa.float64(),
+        ),
+        (
+            "trade2_eligible",
+            pa.bool_(),
+        ),
+        (
+            "trade2_occurred",
+            pa.bool_(),
+        ),
+        (
+            "trade2_executed",
+            pa.bool_(),
+        ),
+        (
+            "trade2_winner",
+            pa.bool_(),
+        ),
+        (
+            "trade2_loser",
+            pa.bool_(),
+        ),
+        (
+            "trade2_breakeven",
+            pa.bool_(),
+        ),
+        (
+            "trade2_result_points",
+            pa.float64(),
+        ),
+        (
+            "consolidated_result_points",
+            pa.float64(),
+        ),
+
+        (
+            "trade2_direction",
+            pa.string(),
+        ),
+        (
+            "trade2_trigger_level",
+            pa.float64(),
+        ),
+        (
+            "trade2_entry_timestamp",
+            pa.string(),
+        ),
+        (
+            "trade2_entry_trade_number",
+            pa.int64(),
+        ),
+        (
+            "trade2_first_traded_price",
+            pa.float64(),
+        ),
+        (
+            "trade2_jumped_entry_level",
+            pa.bool_(),
+        ),
+        (
+            "trade2_final_reason",
+            pa.string(),
+        ),
+        (
+            "trade2_final_timestamp",
+            pa.string(),
+        ),
+        (
+            "trade2_final_price",
+            pa.float64(),
+        ),
+        (
+            "trade2_mfe",
+            pa.float64(),
+        ),
+        (
+            "trade2_mae",
+            pa.float64(),
+        ),
+        (
+            "trade2_management_json",
+            pa.string(),
+        ),
+        (
+            "lifecycle_version",
+            pa.string(),
+        ),
+
         ("final_reason", pa.string()),
         ("final_timestamp", pa.string()),
         ("final_price", pa.float64()),
@@ -348,6 +450,31 @@ def _base_result(
         ),
 
         "total_weighted_points": None,
+
+        "trade1_result_points": None,
+        "trade2_eligible": False,
+        "trade2_occurred": False,
+        "trade2_executed": False,
+        "trade2_winner": False,
+        "trade2_loser": False,
+        "trade2_breakeven": False,
+        "trade2_result_points": None,
+        "consolidated_result_points": None,
+
+        "trade2_direction": None,
+        "trade2_trigger_level": None,
+        "trade2_entry_timestamp": None,
+        "trade2_entry_trade_number": None,
+        "trade2_first_traded_price": None,
+        "trade2_jumped_entry_level": None,
+        "trade2_final_reason": None,
+        "trade2_final_timestamp": None,
+        "trade2_final_price": None,
+        "trade2_mfe": None,
+        "trade2_mae": None,
+        "trade2_management_json": None,
+        "lifecycle_version": None,
+
         "final_reason": None,
         "final_timestamp": None,
         "final_price": None,
@@ -765,13 +892,275 @@ def execute_batch(
                 )
             )
 
-            base[
-                "total_weighted_points"
-            ] = float(
+            trade1_result_points = float(
                 management_result[
                     "total_weighted_points"
                 ]
             )
+
+            #
+            # Compatibilidade histórica.
+            # Este campo NÃO muda de
+            # significado na Etapa 19.
+            #
+            base[
+                "total_weighted_points"
+            ] = trade1_result_points
+
+            base[
+                "trade1_result_points"
+            ] = trade1_result_points
+
+            lifecycle = (
+                simulate_trade_lifecycle(
+                    trajectory=trajectory,
+                    date=date,
+                    trade1_status=(
+                        day[
+                            "trade1_status"
+                        ]
+                    ),
+                    direction=(
+                        day[
+                            "direction"
+                        ]
+                    ),
+                    entry_price=float(
+                        day[
+                            "entry_price"
+                        ]
+                    ),
+                    management_config=(
+                        config
+                    ),
+                    trade1_management=(
+                        management_result
+                    ),
+                    runner_candles=(
+                        runner_candles
+                    ),
+                    lifecycle_config=(
+                        TradeLifecycleConfig(
+                            eligible_after=(
+                                "STOP",
+                            )
+                        )
+                    ),
+                )
+            )
+
+            trade2 = lifecycle[
+                "trade2"
+            ]
+
+            base[
+                "trade2_eligible"
+            ] = bool(
+                trade2[
+                    "eligible"
+                ]
+            )
+
+            base[
+                "trade2_occurred"
+            ] = bool(
+                lifecycle[
+                    "trade2_occurred"
+                ]
+            )
+
+            base[
+                "trade2_executed"
+            ] = bool(
+                lifecycle[
+                    "trade2_executed"
+                ]
+            )
+
+            base[
+                "trade2_winner"
+            ] = bool(
+                lifecycle[
+                    "trade2_winner"
+                ]
+            )
+
+            base[
+                "trade2_loser"
+            ] = bool(
+                lifecycle[
+                    "trade2_loser"
+                ]
+            )
+
+            base[
+                "trade2_breakeven"
+            ] = bool(
+                lifecycle[
+                    "trade2_breakeven"
+                ]
+            )
+
+            base[
+                "trade2_result_points"
+            ] = (
+                float(
+                    lifecycle[
+                        "trade2_result_points"
+                    ]
+                )
+                if lifecycle[
+                    "trade2_result_points"
+                ]
+                is not None
+                else None
+            )
+
+            base[
+                "consolidated_result_points"
+            ] = float(
+                lifecycle[
+                    "consolidated_result_points"
+                ]
+            )
+
+            base[
+                "trade2_direction"
+            ] = trade2[
+                "direction"
+            ]
+
+            base[
+                "trade2_trigger_level"
+            ] = (
+                float(
+                    trade2[
+                        "trigger_level"
+                    ]
+                )
+                if trade2[
+                    "trigger_level"
+                ]
+                is not None
+                else None
+            )
+
+            base[
+                "trade2_entry_timestamp"
+            ] = trade2[
+                "entry_timestamp"
+            ]
+
+            base[
+                "trade2_entry_trade_number"
+            ] = trade2[
+                "entry_trade_number"
+            ]
+
+            base[
+                "trade2_first_traded_price"
+            ] = (
+                float(
+                    trade2[
+                        "first_traded_price"
+                    ]
+                )
+                if trade2[
+                    "first_traded_price"
+                ]
+                is not None
+                else None
+            )
+
+            base[
+                "trade2_jumped_entry_level"
+            ] = trade2[
+                "jumped_entry_level"
+            ]
+
+            base[
+                "trade2_final_reason"
+            ] = trade2[
+                "final_reason"
+            ]
+
+            base[
+                "trade2_final_timestamp"
+            ] = trade2[
+                "final_timestamp"
+            ]
+
+            base[
+                "trade2_final_price"
+            ] = (
+                float(
+                    trade2[
+                        "final_price"
+                    ]
+                )
+                if trade2[
+                    "final_price"
+                ]
+                is not None
+                else None
+            )
+
+            base[
+                "trade2_mfe"
+            ] = (
+                float(
+                    trade2[
+                        "mfe"
+                    ]
+                )
+                if trade2[
+                    "mfe"
+                ]
+                is not None
+                else None
+            )
+
+            base[
+                "trade2_mae"
+            ] = (
+                float(
+                    trade2[
+                        "mae"
+                    ]
+                )
+                if trade2[
+                    "mae"
+                ]
+                is not None
+                else None
+            )
+
+            base[
+                "trade2_management_json"
+            ] = (
+                json.dumps(
+                    trade2[
+                        "management"
+                    ],
+                    sort_keys=True,
+                    separators=(
+                        ",",
+                        ":",
+                    ),
+                    ensure_ascii=False,
+                )
+                if trade2[
+                    "management"
+                ]
+                is not None
+                else None
+            )
+
+            base[
+                "lifecycle_version"
+            ] = lifecycle[
+                "lifecycle_version"
+            ]
 
             base[
                 "final_reason"

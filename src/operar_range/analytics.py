@@ -24,6 +24,19 @@ METRICS_SCHEMA = pa.schema(
         ("trade1_count", pa.int64()),
         ("no_trade1_count", pa.int64()),
         ("trade_frequency_pct", pa.float64()),
+
+        # Trade Lifecycle V1.
+        # Campos descritivos apenas.
+        ("trade2_occurred_count", pa.int64()),
+        ("trade2_executed_count", pa.int64()),
+        ("trade2_winning_count", pa.int64()),
+        ("trade2_losing_count", pa.int64()),
+        ("trade2_breakeven_count", pa.int64()),
+        ("trade2_total_result_points", pa.float64()),
+        ("consolidated_total_result_points", pa.float64()),
+
+        # Compatibilidade histórica:
+        # continua representando Trade 1.
         ("total_weighted_points", pa.float64()),
         ("average_weighted_points", pa.float64()),
         ("median_weighted_points", pa.float64()),
@@ -226,6 +239,103 @@ def calculate_metrics(
         / sessions_total
     )
 
+    #
+    # Trade Lifecycle V1.
+    #
+    # Nenhum destes campos modifica as
+    # métricas históricas do Trade 1.
+    #
+    trade2_occurred_count = sum(
+        1
+        for row in ordered
+        if row.get(
+            "trade2_occurred"
+        )
+        is True
+    )
+
+    trade2_executed_count = sum(
+        1
+        for row in ordered
+        if row.get(
+            "trade2_executed"
+        )
+        is True
+    )
+
+    trade2_winning_count = sum(
+        1
+        for row in ordered
+        if row.get(
+            "trade2_winner"
+        )
+        is True
+    )
+
+    trade2_losing_count = sum(
+        1
+        for row in ordered
+        if row.get(
+            "trade2_loser"
+        )
+        is True
+    )
+
+    trade2_breakeven_count = sum(
+        1
+        for row in ordered
+        if row.get(
+            "trade2_breakeven"
+        )
+        is True
+    )
+
+    trade2_values = [
+        float(
+            row[
+                "trade2_result_points"
+            ]
+        )
+        for row in ordered
+        if row.get(
+            "trade2_result_points"
+        )
+        is not None
+    ]
+
+    consolidated_values = [
+        float(
+            row[
+                "consolidated_result_points"
+            ]
+        )
+        for row in ordered
+        if row.get(
+            "consolidated_result_points"
+        )
+        is not None
+    ]
+
+    trade2_total_result_points = (
+        float(
+            sum(
+                trade2_values
+            )
+        )
+        if trade2_values
+        else 0.0
+    )
+
+    consolidated_total_result_points = (
+        float(
+            sum(
+                consolidated_values
+            )
+        )
+        if consolidated_values
+        else 0.0
+    )
+
     values = [
         float(
             row[
@@ -416,6 +526,29 @@ def calculate_metrics(
         "trade_frequency_pct": (
             trade_frequency_pct
         ),
+
+        "trade2_occurred_count": (
+            trade2_occurred_count
+        ),
+        "trade2_executed_count": (
+            trade2_executed_count
+        ),
+        "trade2_winning_count": (
+            trade2_winning_count
+        ),
+        "trade2_losing_count": (
+            trade2_losing_count
+        ),
+        "trade2_breakeven_count": (
+            trade2_breakeven_count
+        ),
+        "trade2_total_result_points": (
+            trade2_total_result_points
+        ),
+        "consolidated_total_result_points": (
+            consolidated_total_result_points
+        ),
+
         "total_weighted_points": (
             float(total_points)
         ),
