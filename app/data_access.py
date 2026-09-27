@@ -9,6 +9,10 @@ import pandas as pd
 import pyarrow.parquet as pq
 import streamlit as st
 
+from operar_range.research_workspace import (
+    research_paths,
+)
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -84,6 +88,171 @@ REPORTS = {
         / "batch_run_manifest.json"
     ),
 }
+
+
+RESEARCH_DATASET_OVERRIDES = {
+    "trajectory_manifest": "trajectory_manifest",
+    "valid_experiments": "valid",
+    "experiment_results": "distributed_results",
+    "experiment_metrics": "metrics",
+    "experiment_metrics_yearly": "metrics_yearly",
+    "experiment_metrics_monthly": "metrics_monthly",
+    "experiment_rankings": "rankings",
+    "ranking_manifest": "ranking_manifest",
+    "batch_execution_plan": "batch_plan",
+}
+
+
+RESEARCH_REPORT_OVERRIDES = {
+    "ranking_summary": "ranking_summary",
+    "constraint_engine_summary": "constraint_summary",
+}
+
+
+def active_research_id() -> str | None:
+    try:
+        value = st.session_state.get(
+            "active_research_id"
+        )
+    except Exception:
+        return None
+
+    if not value:
+        return None
+
+    return str(value)
+
+
+def active_research_paths() -> dict[str, Path] | None:
+    research_id = active_research_id()
+
+    if research_id is None:
+        return None
+
+    try:
+        paths = research_paths(
+            research_id
+        )
+    except Exception:
+        return None
+
+    root = paths.get(
+        "root"
+    )
+
+    if (
+        root is None
+        or not Path(root).exists()
+    ):
+        return None
+
+    return paths
+
+
+def resolved_dataset_path(
+    name: str,
+) -> Path:
+    canonical = DATASETS.get(
+        name
+    )
+
+    if canonical is None:
+        raise KeyError(
+            f"Unknown dataset: {name}"
+        )
+
+    paths = active_research_paths()
+
+    if paths is None:
+        return canonical
+
+    override_key = (
+        RESEARCH_DATASET_OVERRIDES.get(
+            name
+        )
+    )
+
+    if override_key is None:
+        return canonical
+
+    #
+    # IMPORTANTE:
+    # quando existe Research ID ativo,
+    # nunca fazemos fallback silencioso
+    # para o dataset canonico.
+    #
+    # Se o artifact local nao existir,
+    # read_parquet retornara dataframe
+    # vazio. Isso evita mistura de lineage.
+    #
+    return Path(
+        paths[
+            override_key
+        ]
+    )
+
+
+def resolved_report_path(
+    name: str,
+) -> Path:
+    canonical = REPORTS.get(
+        name
+    )
+
+    if canonical is None:
+        raise KeyError(
+            f"Unknown report: {name}"
+        )
+
+    paths = active_research_paths()
+
+    if paths is None:
+        return canonical
+
+    override_key = (
+        RESEARCH_REPORT_OVERRIDES.get(
+            name
+        )
+    )
+
+    if override_key is None:
+        return canonical
+
+    return Path(
+        paths[
+            override_key
+        ]
+    )
+
+
+def active_research_definition() -> dict[str, Any]:
+    paths = active_research_paths()
+
+    if paths is None:
+        return {}
+
+    definition_path = paths.get(
+        "definition"
+    )
+
+    if (
+        definition_path is None
+        or not Path(
+            definition_path
+        ).exists()
+    ):
+        return {}
+
+    try:
+        return json.loads(
+            Path(
+                definition_path
+            ).read_text(
+                encoding="utf-8"
+            )
+        )
+    except Exception:
+        return {}
 
 
 CONFIG_FIELDS = [
@@ -248,14 +417,9 @@ def read_json(
 def dataset(
     name: str,
 ) -> pd.DataFrame:
-    path = DATASETS.get(
+    path = resolved_dataset_path(
         name
     )
-
-    if path is None:
-        raise KeyError(
-            f"Unknown dataset: {name}"
-        )
 
     return read_parquet(
         path
@@ -265,14 +429,9 @@ def dataset(
 def report(
     name: str,
 ) -> dict[str, Any]:
-    path = REPORTS.get(
+    path = resolved_report_path(
         name
     )
-
-    if path is None:
-        raise KeyError(
-            f"Unknown report: {name}"
-        )
 
     return read_json(
         path
@@ -498,8 +657,59 @@ def experiment_results() -> pd.DataFrame:
 
 
 def trade1_database() -> pd.DataFrame:
-    return dataset(
+    dataframe = dataset(
         "trade1_database"
+    )
+
+    definition = (
+        active_research_definition()
+    )
+
+    if (
+        dataframe.empty
+        or not definition
+        or "date"
+        not in dataframe.columns
+    ):
+        return dataframe
+
+    period_start = definition.get(
+        "period_start"
+    )
+
+    period_end = definition.get(
+        "period_end"
+    )
+
+    if (
+        not period_start
+        or not period_end
+    ):
+        return dataframe
+
+    dates = dataframe[
+        "date"
+    ].astype(str)
+
+    return (
+        dataframe[
+            (
+                dates
+                >= str(
+                    period_start
+                )
+            )
+            & (
+                dates
+                <= str(
+                    period_end
+                )
+            )
+        ]
+        .copy()
+        .reset_index(
+            drop=True
+        )
     )
 
 
@@ -568,6 +778,18 @@ def rankings_for_scope(
     if scope == OVERALL_SCOPE:
         return rankings_overall()
 
+    #
+    # Pesquisas criadas pelo Workspace
+    # atualmente materializam ranking
+    # OVERALL.
+    #
+    # Nunca usar automaticamente os
+    # rankings historicos da Stage 16
+    # para um Research ID ativo.
+    #
+    if active_research_id() is not None:
+        return pd.DataFrame()
+
     scope_dir = (
         _stage16_scope_dir(
             scope,
@@ -593,6 +815,9 @@ def ranking_manifest_for_scope(
 ) -> pd.DataFrame:
     if scope == OVERALL_SCOPE:
         return ranking_manifest_overall()
+
+    if active_research_id() is not None:
+        return pd.DataFrame()
 
     scope_dir = (
         _stage16_scope_dir(
@@ -1149,9 +1374,11 @@ def trajectory_chart_frame(
 def latest_dataset() -> dict[str, Any] | None:
     candidates = []
 
-    for name, path in (
-        DATASETS.items()
-    ):
+    for name in DATASETS:
+        path = resolved_dataset_path(
+            name
+        )
+
         metadata = (
             file_metadata(
                 path
@@ -1187,9 +1414,11 @@ def latest_dataset() -> dict[str, Any] | None:
 def dataset_inventory() -> pd.DataFrame:
     rows = []
 
-    for name, path in (
-        DATASETS.items()
-    ):
+    for name in DATASETS:
+        path = resolved_dataset_path(
+            name
+        )
+
         metadata = (
             file_metadata(
                 path
@@ -1267,9 +1496,11 @@ def dataset_inventory() -> pd.DataFrame:
 def report_inventory() -> pd.DataFrame:
     rows = []
 
-    for name, path in (
-        REPORTS.items()
-    ):
+    for name in REPORTS:
+        path = resolved_report_path(
+            name
+        )
+
         metadata = (
             file_metadata(
                 path
@@ -1367,6 +1598,38 @@ def overview_counts() -> dict[str, Any]:
         else:
             trade1_count = None
             no_trade_count = None
+
+    if (
+        active_research_id()
+        is not None
+        and not valid.empty
+        and "experiment_id"
+        in valid.columns
+        and not registry.empty
+        and "experiment_id"
+        in registry.columns
+    ):
+        research_ids = set(
+            valid[
+                "experiment_id"
+            ]
+            .dropna()
+            .astype(str)
+            .tolist()
+        )
+
+        registry = (
+            registry[
+                registry[
+                    "experiment_id"
+                ]
+                .astype(str)
+                .isin(
+                    research_ids
+                )
+            ]
+            .copy()
+        )
 
     if registry.empty:
         registry_count = None
