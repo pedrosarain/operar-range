@@ -1056,7 +1056,7 @@ def _open_result_button(
         )
 
         st.switch_page(
-            "app/main.py"
+            "main.py"
         )
 
 
