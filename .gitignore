@@ -2,4 +2,4 @@
 .pytest_cache/
 __pycache__/
 *.py[cod]
-.upm/
+.upm/operar_range_backup_*.zip
