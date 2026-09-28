@@ -14,6 +14,19 @@ import pyarrow.parquet as pq
 from operar_range.experiment_registry import (
     migrate_registry,
 )
+from operar_range.management import (
+    ManagementConfig,
+)
+from operar_range.trade2_configuration import (
+    TRADE2_MANAGEMENT_INHERIT,
+    TRADE2_OVERRIDE_FIELDS,
+    management_config_sha256,
+    normalize_trade2_overrides,
+    resolve_trade2_management_config,
+    trade2_control_from_row,
+    trade2_has_explicit_overrides,
+    trade2_override_sha256,
+)
 
 
 GENERATOR_VERSION = "experiment-generator-v1"
@@ -47,6 +60,51 @@ GENERATED_EXPERIMENT_SCHEMA = pa.schema(
         ("engine_version", pa.string()),
         ("rules_version", pa.string()),
         ("definition_sha256", pa.string()),
+
+        ("trade1_config_sha256", pa.string()),
+        ("trade2_override_sha256", pa.string()),
+        (
+            "trade2_effective_config_sha256",
+            pa.string(),
+        ),
+        (
+            "trade2_has_explicit_overrides",
+            pa.bool_(),
+        ),
+        ("trade2_enabled", pa.bool_()),
+        ("trade2_management_mode", pa.string()),
+
+        ("trade2_stop_mode", pa.string()),
+        ("trade2_stop_points", pa.float64()),
+
+        ("trade2_partial_1_mode", pa.string()),
+        ("trade2_partial_1_points", pa.float64()),
+        ("trade2_partial_1_pct", pa.float64()),
+
+        ("trade2_partial_2_mode", pa.string()),
+        ("trade2_partial_2_points", pa.float64()),
+        ("trade2_partial_2_pct", pa.float64()),
+
+        ("trade2_partial_3_mode", pa.string()),
+        ("trade2_partial_3_points", pa.float64()),
+        ("trade2_partial_3_pct", pa.float64()),
+
+        ("trade2_break_even_mode", pa.string()),
+        (
+            "trade2_break_even_after_partial",
+            pa.int64(),
+        ),
+
+        ("trade2_runner_mode", pa.string()),
+        ("trade2_runner_pct", pa.float64()),
+        ("trade2_runner_rule", pa.string()),
+
+        ("trade2_final_target_mode", pa.string()),
+        (
+            "trade2_final_target_points",
+            pa.float64(),
+        ),
+
         ("stop_points", pa.float64()),
         ("partial_1_points", pa.float64()),
         ("partial_1_pct", pa.float64()),
@@ -101,6 +159,185 @@ def sha256_file(
             digest.update(chunk)
 
     return digest.hexdigest()
+
+
+def _management_config_from_config(
+    config: dict[str, Any],
+) -> ManagementConfig:
+    return ManagementConfig(
+        stop_points=float(
+            config[
+                "stop_points"
+            ]
+        ),
+        partial_1_points=(
+            config.get(
+                "partial_1_points"
+            )
+        ),
+        partial_1_pct=(
+            config.get(
+                "partial_1_pct"
+            )
+        ),
+        partial_2_points=(
+            config.get(
+                "partial_2_points"
+            )
+        ),
+        partial_2_pct=(
+            config.get(
+                "partial_2_pct"
+            )
+        ),
+        partial_3_points=(
+            config.get(
+                "partial_3_points"
+            )
+        ),
+        partial_3_pct=(
+            config.get(
+                "partial_3_pct"
+            )
+        ),
+        break_even_enabled=bool(
+            config.get(
+                "break_even_enabled"
+            )
+        ),
+        break_even_after_partial=(
+            config.get(
+                "break_even_after_partial"
+            )
+        ),
+        final_target_points=(
+            config.get(
+                "final_target_points"
+            )
+        ),
+        runner_enabled=bool(
+            config.get(
+                "runner_enabled"
+            )
+        ),
+        runner_pct=(
+            config.get(
+                "runner_pct"
+            )
+        ),
+        runner_exit_rule=(
+            config.get(
+                "runner_rule"
+            )
+        ),
+        position_size=100.0,
+    )
+
+
+def _global_config_sha256(
+    *,
+    trade1_config: dict[str, Any],
+    trade2_overrides: dict[str, Any],
+    trade2_enabled: bool | None = None,
+    trade2_management_mode: str | None = None,
+) -> str:
+    trade2_overrides = (
+        normalize_trade2_overrides(
+            trade2_overrides
+        )
+    )
+
+    trade1_hash = config_sha256(
+        trade1_config
+    )
+
+    control_row: dict[str, Any] = {}
+
+    if trade2_enabled is not None:
+        control_row[
+            "trade2_enabled"
+        ] = bool(
+            trade2_enabled
+        )
+
+    if trade2_management_mode is not None:
+        control_row[
+            "trade2_management_mode"
+        ] = str(
+            trade2_management_mode
+        )
+
+    control = trade2_control_from_row(
+        control_row
+    )
+
+    #
+    # BACKWARD COMPATIBILITY:
+    # chamada/artifact legado sem controle
+    # explícito e sem override preserva
+    # EXATAMENTE o hash histórico.
+    #
+    if (
+        control[
+            "legacy_semantics"
+        ]
+        and not trade2_has_explicit_overrides(
+            trade2_overrides
+        )
+    ):
+        return trade1_hash
+
+    trade1_management = (
+        _management_config_from_config(
+            trade1_config
+        )
+    )
+
+    effective_trade2 = (
+        resolve_trade2_management_config(
+            trade1_config=(
+                trade1_management
+            ),
+            overrides=(
+                trade2_overrides
+            ),
+            validate_effective=False,
+        )
+    )
+
+    payload = {
+        "trade1_config_sha256": (
+            trade1_hash
+        ),
+        "trade2_enabled": (
+            control[
+                "trade2_enabled"
+            ]
+        ),
+        "trade2_management_mode": (
+            control[
+                "trade2_management_mode"
+            ]
+        ),
+        "trade2_override_sha256": (
+            trade2_override_sha256(
+                trade2_overrides
+            )
+        ),
+        (
+            "trade2_effective_config_sha256"
+        ): (
+            management_config_sha256(
+                effective_trade2
+            )
+        ),
+    }
+
+    return _sha256_text(
+        _canonical_json(
+            payload
+        )
+    )
 
 
 def config_sha256(
@@ -278,6 +515,25 @@ def generate_configurations(
         str,
         dict[str, Any],
     ],
+    trade2_base_overrides: (
+        dict[str, Any]
+        | None
+    ) = None,
+    trade2_parameter_definition: (
+        dict[
+            str,
+            dict[str, Any],
+        ]
+        | None
+    ) = None,
+    trade2_enabled: (
+        bool
+        | None
+    ) = None,
+    trade2_management_mode: (
+        str
+        | None
+    ) = None,
 ) -> list[dict[str, Any]]:
     parameter_names = list(
         parameter_definition.keys()
@@ -291,6 +547,51 @@ def generate_configurations(
         )
         for name in parameter_names
     ]
+
+    trade2_definition = (
+        trade2_parameter_definition
+        or {}
+    )
+
+    trade2_parameter_names = list(
+        trade2_definition.keys()
+    )
+
+    for name in trade2_parameter_names:
+        if (
+            name
+            not in TRADE2_OVERRIDE_FIELDS
+        ):
+            raise ValueError(
+                (
+                    "Unsupported Trade 2 "
+                    "parameter: "
+                    f"{name}"
+                )
+            )
+
+    trade2_parameter_values = [
+        expand_parameter(
+            trade2_definition[
+                name
+            ]
+        )
+        for name in (
+            trade2_parameter_names
+        )
+    ]
+
+    trade2_combinations = (
+        list(
+            product(
+                *trade2_parameter_values
+            )
+        )
+        if trade2_parameter_names
+        else [
+            ()
+        ]
+    )
 
     configurations = []
 
@@ -317,9 +618,69 @@ def generate_configurations(
             for field in CONFIG_FIELDS
         }
 
-        configurations.append(
-            complete
-        )
+        for trade2_combination in (
+            trade2_combinations
+        ):
+            overrides = {
+                field: value
+                for field, value
+                in (
+                    trade2_base_overrides
+                    or {}
+                ).items()
+                if field
+                in TRADE2_OVERRIDE_FIELDS
+            }
+
+            for (
+                parameter_name,
+                parameter_value,
+            ) in zip(
+                trade2_parameter_names,
+                trade2_combination,
+            ):
+                overrides[
+                    parameter_name
+                ] = parameter_value
+
+            from operar_range.trade2_configuration import (
+                normalize_trade2_overrides,
+            )
+
+            normalized = (
+                normalize_trade2_overrides(
+                    overrides
+                )
+            )
+
+            combined = dict(
+                complete
+            )
+
+            combined.update(
+                normalized
+            )
+
+            if trade2_enabled is not None:
+                combined[
+                    "trade2_enabled"
+                ] = bool(
+                    trade2_enabled
+                )
+
+            if (
+                trade2_management_mode
+                is not None
+            ):
+                combined[
+                    "trade2_management_mode"
+                ] = str(
+                    trade2_management_mode
+                )
+
+            configurations.append(
+                combined
+            )
 
     return configurations
 
@@ -582,9 +943,40 @@ def assign_experiment_ids(
     ] = {}
 
     for config in configurations:
+        trade1_config = {
+            field: config.get(
+                field
+            )
+            for field in CONFIG_FIELDS
+        }
+
+        trade2_overrides = {
+            field: config[
+                field
+            ]
+            for field
+            in TRADE2_OVERRIDE_FIELDS
+            if field in config
+        }
+
         config_hash = (
-            config_sha256(
-                config
+            _global_config_sha256(
+                trade1_config=(
+                    trade1_config
+                ),
+                trade2_overrides=(
+                    trade2_overrides
+                ),
+                trade2_enabled=(
+                    config.get(
+                        "trade2_enabled"
+                    )
+                ),
+                trade2_management_mode=(
+                    config.get(
+                        "trade2_management_mode"
+                    )
+                ),
             )
         )
 
@@ -647,6 +1039,25 @@ def build_experiment_rows(
         str,
         dict[str, Any],
     ],
+    trade2_base_overrides: (
+        dict[str, Any]
+        | None
+    ) = None,
+    trade2_parameter_definition: (
+        dict[
+            str,
+            dict[str, Any],
+        ]
+        | None
+    ) = None,
+    trade2_enabled: (
+        bool
+        | None
+    ) = None,
+    trade2_management_mode: (
+        str
+        | None
+    ) = None,
     engine_version: str = (
         GENERATOR_VERSION
     ),
@@ -665,6 +1076,18 @@ def build_experiment_rows(
             base_config=base_config,
             parameter_definition=(
                 parameter_definition
+            ),
+            trade2_base_overrides=(
+                trade2_base_overrides
+            ),
+            trade2_parameter_definition=(
+                trade2_parameter_definition
+            ),
+            trade2_enabled=(
+                trade2_enabled
+            ),
+            trade2_management_mode=(
+                trade2_management_mode
             ),
         )
     )
@@ -739,9 +1162,94 @@ def build_experiment_rows(
             ),
         }
 
+        trade1_config = {
+            field: config.get(
+                field
+            )
+            for field in CONFIG_FIELDS
+        }
+
+        trade1_management = (
+            _management_config_from_config(
+                trade1_config
+            )
+        )
+
+        trade2_overrides = {
+            field: config[
+                field
+            ]
+            for field
+            in TRADE2_OVERRIDE_FIELDS
+            if field in config
+        }
+
+        normalized_trade2 = (
+            normalize_trade2_overrides(
+                trade2_overrides
+            )
+        )
+
+        effective_trade2 = (
+            resolve_trade2_management_config(
+                trade1_config=(
+                    trade1_management
+                ),
+                overrides=(
+                    normalized_trade2
+                ),
+                validate_effective=False,
+            )
+        )
+
+        row[
+            "trade1_config_sha256"
+        ] = config_sha256(
+            trade1_config
+        )
+
+        row[
+            "trade2_override_sha256"
+        ] = trade2_override_sha256(
+            normalized_trade2
+        )
+
+        row[
+            "trade2_effective_config_sha256"
+        ] = management_config_sha256(
+            effective_trade2
+        )
+
+        row[
+            "trade2_has_explicit_overrides"
+        ] = trade2_has_explicit_overrides(
+            normalized_trade2
+        )
+
+        row[
+            "trade2_enabled"
+        ] = config.get(
+            "trade2_enabled"
+        )
+
+        row[
+            "trade2_management_mode"
+        ] = config.get(
+            "trade2_management_mode"
+        )
+
         for field in CONFIG_FIELDS:
             row[field] = (
                 config.get(
+                    field
+                )
+            )
+
+        for field in (
+            TRADE2_OVERRIDE_FIELDS
+        ):
+            row[field] = (
+                normalized_trade2.get(
                     field
                 )
             )
@@ -794,6 +1302,25 @@ def generate_experiment_database(
         str,
         dict[str, Any],
     ],
+    trade2_base_overrides: (
+        dict[str, Any]
+        | None
+    ) = None,
+    trade2_parameter_definition: (
+        dict[
+            str,
+            dict[str, Any],
+        ]
+        | None
+    ) = None,
+    trade2_enabled: (
+        bool
+        | None
+    ) = None,
+    trade2_management_mode: (
+        str
+        | None
+    ) = None,
     engine_version: str = (
         GENERATOR_VERSION
     ),
@@ -816,6 +1343,18 @@ def generate_experiment_database(
         base_config=base_config,
         parameter_definition=(
             parameter_definition
+        ),
+        trade2_base_overrides=(
+            trade2_base_overrides
+        ),
+        trade2_parameter_definition=(
+            trade2_parameter_definition
+        ),
+        trade2_enabled=(
+            trade2_enabled
+        ),
+        trade2_management_mode=(
+            trade2_management_mode
         ),
         engine_version=(
             engine_version

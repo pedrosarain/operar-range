@@ -9,6 +9,15 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from operar_range.management import (
+    ManagementConfig,
+)
+from operar_range.trade2_configuration import (
+    TRADE2_OVERRIDE_FIELDS,
+    normalize_trade2_overrides,
+    resolve_trade2_management_config,
+)
+
 
 BATCH_EXECUTOR_VERSION = "batch-executor-v1"
 
@@ -219,18 +228,133 @@ def _validate_registry(
             )
 
 
+def _management_config_from_experiment(
+    experiment: dict[str, Any],
+) -> ManagementConfig:
+    return ManagementConfig(
+        stop_points=float(
+            experiment[
+                "stop_points"
+            ]
+        ),
+        partial_1_points=(
+            experiment.get(
+                "partial_1_points"
+            )
+        ),
+        partial_1_pct=(
+            experiment.get(
+                "partial_1_pct"
+            )
+        ),
+        partial_2_points=(
+            experiment.get(
+                "partial_2_points"
+            )
+        ),
+        partial_2_pct=(
+            experiment.get(
+                "partial_2_pct"
+            )
+        ),
+        partial_3_points=(
+            experiment.get(
+                "partial_3_points"
+            )
+        ),
+        partial_3_pct=(
+            experiment.get(
+                "partial_3_pct"
+            )
+        ),
+        break_even_enabled=bool(
+            experiment.get(
+                "break_even_enabled"
+            )
+        ),
+        break_even_after_partial=(
+            experiment.get(
+                "break_even_after_partial"
+            )
+        ),
+        final_target_points=(
+            experiment.get(
+                "final_target_points"
+            )
+        ),
+        runner_enabled=bool(
+            experiment.get(
+                "runner_enabled"
+            )
+        ),
+        runner_pct=(
+            experiment.get(
+                "runner_pct"
+            )
+        ),
+        runner_exit_rule=(
+            experiment.get(
+                "runner_rule"
+            )
+        ),
+        position_size=100.0,
+    )
+
+
+def _uses_m5_runner(
+    config: ManagementConfig,
+) -> bool:
+    return (
+        config.runner_enabled
+        is True
+        and config.runner_exit_rule
+        == "CANDLE_BREAK_M5"
+    )
+
+
 def _requires_runner_candles(
     experiment: dict[str, Any],
 ) -> bool:
-    return (
-        experiment.get(
-            "runner_enabled"
+    trade1_config = (
+        _management_config_from_experiment(
+            experiment
         )
-        is True
-        and experiment.get(
-            "runner_rule"
+    )
+
+    if _uses_m5_runner(
+        trade1_config
+    ):
+        return True
+
+    raw_trade2_overrides = {
+        field: experiment[
+            field
+        ]
+        for field
+        in TRADE2_OVERRIDE_FIELDS
+        if field in experiment
+    }
+
+    normalized_trade2 = (
+        normalize_trade2_overrides(
+            raw_trade2_overrides
         )
-        == "CANDLE_BREAK_M5"
+    )
+
+    trade2_config = (
+        resolve_trade2_management_config(
+            trade1_config=(
+                trade1_config
+            ),
+            overrides=(
+                normalized_trade2
+            ),
+            validate_effective=False,
+        )
+    )
+
+    return _uses_m5_runner(
+        trade2_config
     )
 
 

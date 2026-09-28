@@ -104,6 +104,274 @@ def _parameter_definition_from_ui(
     }
 
 
+TRADE2_COMPONENT_MODES = [
+    "Herdar",
+    "Configurar",
+    "Desativar",
+]
+
+TRADE2_STOP_MODES = [
+    "Herdar",
+    "Configurar",
+]
+
+
+def _trade2_internal_mode(
+    value: str,
+) -> str:
+    mapping = {
+        "Herdar": "INHERIT",
+        "Configurar": "CONFIGURE",
+        "Desativar": "DISABLE",
+    }
+
+    if value not in mapping:
+        raise ValueError(
+            (
+                "Modo de gestão do Trade 2 "
+                f"não suportado: {value}"
+            )
+        )
+
+    return mapping[
+        value
+    ]
+
+
+def _trade2_research_from_state() -> dict[str, Any]:
+    enabled = bool(
+        st.session_state.get(
+            "stage21_trade2_enabled",
+            True,
+        )
+    )
+
+    management_choice = str(
+        st.session_state.get(
+            "stage21_trade2_management",
+            "Herdar gestão do Trade 1",
+        )
+    )
+
+    management_mode = (
+        "CUSTOM"
+        if (
+            enabled
+            and management_choice
+            == "Personalizar Trade 2"
+        )
+        else "INHERIT"
+    )
+
+    if (
+        not enabled
+        or management_mode == "INHERIT"
+    ):
+        return {
+            "trade2_enabled": (
+                enabled
+            ),
+            "trade2_management_mode": (
+                management_mode
+            ),
+            "trade2_base_overrides": None,
+            "trade2_parameter_definition": None,
+        }
+
+    overrides: dict[str, Any] = {}
+    parameters: dict[
+        str,
+        dict[str, Any],
+    ] = {}
+
+    stop_mode = _trade2_internal_mode(
+        str(
+            st.session_state.get(
+                "stage21_trade2_stop_mode",
+                "Herdar",
+            )
+        )
+    )
+
+    overrides[
+        "trade2_stop_mode"
+    ] = stop_mode
+
+    if stop_mode == "CONFIGURE":
+        stop_values = [
+            float(value)
+            for value
+            in st.session_state.get(
+                "stage21_trade2_stop_values",
+                [170.0],
+            )
+        ]
+
+        parameters[
+            "trade2_stop_points"
+        ] = {
+            "values": stop_values,
+        }
+
+    for number in (
+        1,
+        2,
+        3,
+    ):
+        prefix = (
+            f"stage21_trade2_partial{number}"
+        )
+
+        mode = _trade2_internal_mode(
+            str(
+                st.session_state.get(
+                    f"{prefix}_mode",
+                    "Herdar",
+                )
+            )
+        )
+
+        overrides[
+            f"trade2_partial_{number}_mode"
+        ] = mode
+
+        if mode == "CONFIGURE":
+            points_values = [
+                float(value)
+                for value
+                in st.session_state.get(
+                    f"{prefix}_points_values",
+                    [],
+                )
+            ]
+
+            pct_values = [
+                float(value)
+                for value
+                in st.session_state.get(
+                    f"{prefix}_pct_values",
+                    [],
+                )
+            ]
+
+            parameters[
+                f"trade2_partial_{number}_points"
+            ] = {
+                "values": points_values,
+            }
+
+            parameters[
+                f"trade2_partial_{number}_pct"
+            ] = {
+                "values": pct_values,
+            }
+
+    be_mode = _trade2_internal_mode(
+        str(
+            st.session_state.get(
+                "stage21_trade2_be_mode",
+                "Herdar",
+            )
+        )
+    )
+
+    overrides[
+        "trade2_break_even_mode"
+    ] = be_mode
+
+    if be_mode == "CONFIGURE":
+        parameters[
+            "trade2_break_even_after_partial"
+        ] = {
+            "values": [
+                int(
+                    st.session_state.get(
+                        "stage21_trade2_be_after",
+                        1,
+                    )
+                )
+            ]
+        }
+
+    runner_mode = _trade2_internal_mode(
+        str(
+            st.session_state.get(
+                "stage21_trade2_runner_mode",
+                "Herdar",
+            )
+        )
+    )
+
+    overrides[
+        "trade2_runner_mode"
+    ] = runner_mode
+
+    if runner_mode == "CONFIGURE":
+        runner_values = [
+            float(value)
+            for value
+            in st.session_state.get(
+                "stage21_trade2_runner_pct_values",
+                [30.0],
+            )
+        ]
+
+        parameters[
+            "trade2_runner_pct"
+        ] = {
+            "values": runner_values,
+        }
+
+        overrides[
+            "trade2_runner_rule"
+        ] = str(
+            st.session_state.get(
+                "stage21_trade2_runner_rule",
+                RUNNER_RULES[0],
+            )
+        )
+
+    target_mode = _trade2_internal_mode(
+        str(
+            st.session_state.get(
+                "stage21_trade2_target_mode",
+                "Herdar",
+            )
+        )
+    )
+
+    overrides[
+        "trade2_final_target_mode"
+    ] = target_mode
+
+    if target_mode == "CONFIGURE":
+        target_values = [
+            float(value)
+            for value
+            in st.session_state.get(
+                "stage21_trade2_target_values",
+                [400.0],
+            )
+        ]
+
+        parameters[
+            "trade2_final_target_points"
+        ] = {
+            "values": target_values,
+        }
+
+    return {
+        "trade2_enabled": True,
+        "trade2_management_mode": "CUSTOM",
+        "trade2_base_overrides": (
+            overrides
+        ),
+        "trade2_parameter_definition": (
+            parameters
+        ),
+    }
+
+
 def _prepared_datasets() -> list[
     dict[str, Any]
 ]:
@@ -193,6 +461,10 @@ def _build_definition(
     internal = model[
         "internal"
     ]
+
+    trade2_research = (
+        _trade2_research_from_state()
+    )
 
     base_config = {
         "stop_points": None,
@@ -353,6 +625,26 @@ def _build_definition(
                     partial_1_pct_values
                 ),
             )
+        ),
+        "trade2_enabled": (
+            trade2_research[
+                "trade2_enabled"
+            ]
+        ),
+        "trade2_management_mode": (
+            trade2_research[
+                "trade2_management_mode"
+            ]
+        ),
+        "trade2_base_overrides": (
+            trade2_research[
+                "trade2_base_overrides"
+            ]
+        ),
+        "trade2_parameter_definition": (
+            trade2_research[
+                "trade2_parameter_definition"
+            ]
         ),
         "composite_weights": dict(
             DEFAULT_COMPOSITE_WEIGHTS
@@ -1250,7 +1542,684 @@ def _step_three() -> None:
                 ),
             )
 
+    st.divider()
+
+    with st.expander(
+        "Trade 2",
+        expanded=True,
+    ):
+        trade2_enabled = st.radio(
+            "Trade 2",
+            options=[
+                False,
+                True,
+            ],
+            format_func=lambda value: (
+                "Ligado"
+                if value
+                else (
+                    "Desligado — pesquisar "
+                    "somente Trade 1"
+                )
+            ),
+            index=(
+                1
+                if st.session_state.get(
+                    "stage21_trade2_enabled",
+                    True,
+                )
+                else 0
+            ),
+            horizontal=True,
+            key=(
+                "stage21_trade2_enabled"
+            ),
+        )
+
+        if trade2_enabled:
+            st.caption(
+                (
+                    "O Trade 2 mantém a regra "
+                    "oficial de elegibilidade "
+                    "após STOP."
+                )
+            )
+
+            management_choice = st.radio(
+                "Gestão do Trade 2",
+                options=[
+                    "Herdar gestão do Trade 1",
+                    "Personalizar Trade 2",
+                ],
+                index=(
+                    1
+                    if st.session_state.get(
+                        "stage21_trade2_management",
+                        (
+                            "Herdar gestão "
+                            "do Trade 1"
+                        ),
+                    )
+                    == "Personalizar Trade 2"
+                    else 0
+                ),
+                key=(
+                    "stage21_trade2_management"
+                ),
+            )
+
+            if (
+                management_choice
+                == "Herdar gestão do Trade 1"
+            ):
+                st.info(
+                    (
+                        "O Trade 2 utilizará "
+                        "exatamente a mesma gestão "
+                        "do Trade 1."
+                    )
+                )
+
+            else:
+                st.caption(
+                    (
+                        "Parâmetros não modificados "
+                        "continuam herdando a gestão "
+                        "do Trade 1."
+                    )
+                )
+
+                st.markdown(
+                    "**Stop**"
+                )
+
+                stop_mode = st.radio(
+                    "Stop do Trade 2",
+                    options=(
+                        TRADE2_STOP_MODES
+                    ),
+                    horizontal=True,
+                    key=(
+                        "stage21_trade2_stop_mode"
+                    ),
+                )
+
+                if stop_mode == "Configurar":
+                    st.multiselect(
+                        "Stops do Trade 2 a testar",
+                        options=[
+                            100.0,
+                            120.0,
+                            125.0,
+                            150.0,
+                            165.0,
+                            170.0,
+                            175.0,
+                            200.0,
+                        ],
+                        default=(
+                            st.session_state.get(
+                                (
+                                    "stage21_"
+                                    "trade2_stop_values"
+                                ),
+                                [
+                                    170.0,
+                                ],
+                            )
+                        ),
+                        key=(
+                            "stage21_trade2_stop_values"
+                        ),
+                    )
+
+                st.markdown(
+                    "**Parcial 1**"
+                )
+
+                p1_mode = st.radio(
+                    "Parcial 1 do Trade 2",
+                    options=(
+                        TRADE2_COMPONENT_MODES
+                    ),
+                    horizontal=True,
+                    key=(
+                        "stage21_trade2_partial1_mode"
+                    ),
+                )
+
+                if p1_mode == "Configurar":
+                    p1a, p1b = st.columns(
+                        2
+                    )
+
+                    with p1a:
+                        st.multiselect(
+                            (
+                                "Pontos da Parcial 1 "
+                                "— Trade 2"
+                            ),
+                            options=[
+                                100.0,
+                                125.0,
+                                150.0,
+                                175.0,
+                                200.0,
+                            ],
+                            default=(
+                                st.session_state.get(
+                                    (
+                                        "stage21_trade2_"
+                                        "partial1_points_values"
+                                    ),
+                                    [
+                                        125.0,
+                                    ],
+                                )
+                            ),
+                            key=(
+                                "stage21_trade2_"
+                                "partial1_points_values"
+                            ),
+                        )
+
+                    with p1b:
+                        st.multiselect(
+                            (
+                                "% da Parcial 1 "
+                                "— Trade 2"
+                            ),
+                            options=[
+                                10.0,
+                                15.0,
+                                20.0,
+                                25.0,
+                                30.0,
+                                40.0,
+                                50.0,
+                                60.0,
+                                70.0,
+                            ],
+                            default=(
+                                st.session_state.get(
+                                    (
+                                        "stage21_trade2_"
+                                        "partial1_pct_values"
+                                    ),
+                                    [
+                                        70.0,
+                                    ],
+                                )
+                            ),
+                            key=(
+                                "stage21_trade2_"
+                                "partial1_pct_values"
+                            ),
+                        )
+
+                st.markdown(
+                    "**Parcial 2**"
+                )
+
+                p2_mode = st.radio(
+                    "Parcial 2 do Trade 2",
+                    options=(
+                        TRADE2_COMPONENT_MODES
+                    ),
+                    horizontal=True,
+                    key=(
+                        "stage21_trade2_partial2_mode"
+                    ),
+                )
+
+                if p2_mode == "Configurar":
+                    p2a, p2b = st.columns(
+                        2
+                    )
+
+                    with p2a:
+                        st.multiselect(
+                            (
+                                "Pontos da Parcial 2 "
+                                "— Trade 2"
+                            ),
+                            options=[
+                                100.0,
+                                125.0,
+                                150.0,
+                                175.0,
+                                200.0,
+                                250.0,
+                                300.0,
+                                400.0,
+                            ],
+                            default=(
+                                st.session_state.get(
+                                    (
+                                        "stage21_trade2_"
+                                        "partial2_points_values"
+                                    ),
+                                    [
+                                        175.0,
+                                    ],
+                                )
+                            ),
+                            key=(
+                                "stage21_trade2_"
+                                "partial2_points_values"
+                            ),
+                        )
+
+                    with p2b:
+                        st.multiselect(
+                            (
+                                "% da Parcial 2 "
+                                "— Trade 2"
+                            ),
+                            options=[
+                                10.0,
+                                15.0,
+                                20.0,
+                                25.0,
+                                30.0,
+                                40.0,
+                                50.0,
+                                60.0,
+                                70.0,
+                            ],
+                            default=(
+                                st.session_state.get(
+                                    (
+                                        "stage21_trade2_"
+                                        "partial2_pct_values"
+                                    ),
+                                    [
+                                        30.0,
+                                    ],
+                                )
+                            ),
+                            key=(
+                                "stage21_trade2_"
+                                "partial2_pct_values"
+                            ),
+                        )
+
+                st.markdown(
+                    "**Parcial 3**"
+                )
+
+                p3_mode = st.radio(
+                    "Parcial 3 do Trade 2",
+                    options=(
+                        TRADE2_COMPONENT_MODES
+                    ),
+                    horizontal=True,
+                    key=(
+                        "stage21_trade2_partial3_mode"
+                    ),
+                )
+
+                if p3_mode == "Configurar":
+                    p3a, p3b = st.columns(
+                        2
+                    )
+
+                    with p3a:
+                        st.multiselect(
+                            (
+                                "Pontos da Parcial 3 "
+                                "— Trade 2"
+                            ),
+                            options=[
+                                100.0,
+                                125.0,
+                                150.0,
+                                175.0,
+                                200.0,
+                                250.0,
+                                300.0,
+                                400.0,
+                            ],
+                            default=(
+                                st.session_state.get(
+                                    (
+                                        "stage21_trade2_"
+                                        "partial3_points_values"
+                                    ),
+                                    [
+                                        200.0,
+                                    ],
+                                )
+                            ),
+                            key=(
+                                "stage21_trade2_"
+                                "partial3_points_values"
+                            ),
+                        )
+
+                    with p3b:
+                        st.multiselect(
+                            (
+                                "% da Parcial 3 "
+                                "— Trade 2"
+                            ),
+                            options=[
+                                10.0,
+                                15.0,
+                                20.0,
+                                25.0,
+                                30.0,
+                                40.0,
+                                50.0,
+                                60.0,
+                                70.0,
+                            ],
+                            default=(
+                                st.session_state.get(
+                                    (
+                                        "stage21_trade2_"
+                                        "partial3_pct_values"
+                                    ),
+                                    [
+                                        15.0,
+                                    ],
+                                )
+                            ),
+                            key=(
+                                "stage21_trade2_"
+                                "partial3_pct_values"
+                            ),
+                        )
+
+                st.markdown(
+                    "**Break-even**"
+                )
+
+                be_mode = st.radio(
+                    "Break-even do Trade 2",
+                    options=(
+                        TRADE2_COMPONENT_MODES
+                    ),
+                    horizontal=True,
+                    key=(
+                        "stage21_trade2_be_mode"
+                    ),
+                )
+
+                if be_mode == "Configurar":
+                    st.selectbox(
+                        (
+                            "Aplicar BE após qual "
+                            "parcial no Trade 2?"
+                        ),
+                        options=[
+                            1,
+                            2,
+                            3,
+                        ],
+                        key=(
+                            "stage21_trade2_be_after"
+                        ),
+                    )
+
+                st.markdown(
+                    "**Runner**"
+                )
+
+                runner_mode = st.radio(
+                    "Runner do Trade 2",
+                    options=(
+                        TRADE2_COMPONENT_MODES
+                    ),
+                    horizontal=True,
+                    key=(
+                        "stage21_trade2_runner_mode"
+                    ),
+                )
+
+                if runner_mode == "Configurar":
+                    r2a, r2b = st.columns(
+                        2
+                    )
+
+                    with r2a:
+                        st.multiselect(
+                            "% Runner — Trade 2",
+                            options=[
+                                10.0,
+                                15.0,
+                                20.0,
+                                25.0,
+                                30.0,
+                                40.0,
+                                50.0,
+                                60.0,
+                                70.0,
+                            ],
+                            default=(
+                                st.session_state.get(
+                                    (
+                                        "stage21_trade2_"
+                                        "runner_pct_values"
+                                    ),
+                                    [
+                                        30.0,
+                                    ],
+                                )
+                            ),
+                            key=(
+                                "stage21_trade2_"
+                                "runner_pct_values"
+                            ),
+                        )
+
+                    with r2b:
+                        st.selectbox(
+                            (
+                                "Regra do Runner "
+                                "— Trade 2"
+                            ),
+                            options=(
+                                RUNNER_RULES
+                            ),
+                            key=(
+                                "stage21_trade2_"
+                                "runner_rule"
+                            ),
+                        )
+
+                st.markdown(
+                    "**Target final**"
+                )
+
+                target_mode = st.radio(
+                    "Target final do Trade 2",
+                    options=(
+                        TRADE2_COMPONENT_MODES
+                    ),
+                    horizontal=True,
+                    key=(
+                        "stage21_trade2_target_mode"
+                    ),
+                )
+
+                if target_mode == "Configurar":
+                    st.multiselect(
+                        (
+                            "Targets finais do "
+                            "Trade 2 a testar"
+                        ),
+                        options=[
+                            100.0,
+                            125.0,
+                            150.0,
+                            175.0,
+                            200.0,
+                            300.0,
+                            400.0,
+                            500.0,
+                            1000.0,
+                        ],
+                        default=(
+                            st.session_state.get(
+                                (
+                                    "stage21_trade2_"
+                                    "target_values"
+                                ),
+                                [
+                                    400.0,
+                                ],
+                            )
+                        ),
+                        key=(
+                            "stage21_trade2_target_values"
+                        ),
+                    )
+
     errors = []
+
+    if (
+        trade2_enabled
+        and st.session_state.get(
+            "stage21_trade2_management"
+        )
+        == "Personalizar Trade 2"
+    ):
+        trade2_modes = [
+            st.session_state.get(
+                "stage21_trade2_stop_mode",
+                "Herdar",
+            ),
+            st.session_state.get(
+                "stage21_trade2_partial1_mode",
+                "Herdar",
+            ),
+            st.session_state.get(
+                "stage21_trade2_partial2_mode",
+                "Herdar",
+            ),
+            st.session_state.get(
+                "stage21_trade2_partial3_mode",
+                "Herdar",
+            ),
+            st.session_state.get(
+                "stage21_trade2_be_mode",
+                "Herdar",
+            ),
+            st.session_state.get(
+                "stage21_trade2_runner_mode",
+                "Herdar",
+            ),
+            st.session_state.get(
+                "stage21_trade2_target_mode",
+                "Herdar",
+            ),
+        ]
+
+        if all(
+            mode == "Herdar"
+            for mode in trade2_modes
+        ):
+            errors.append(
+                (
+                    "Ao personalizar o Trade 2, "
+                    "altere pelo menos um "
+                    "componente da gestão."
+                )
+            )
+
+        configured_lists = [
+            (
+                "stage21_trade2_stop_mode",
+                "stage21_trade2_stop_values",
+                "Stop do Trade 2",
+            ),
+            (
+                "stage21_trade2_partial1_mode",
+                (
+                    "stage21_trade2_"
+                    "partial1_points_values"
+                ),
+                "Pontos da Parcial 1 do Trade 2",
+            ),
+            (
+                "stage21_trade2_partial1_mode",
+                (
+                    "stage21_trade2_"
+                    "partial1_pct_values"
+                ),
+                "% da Parcial 1 do Trade 2",
+            ),
+            (
+                "stage21_trade2_partial2_mode",
+                (
+                    "stage21_trade2_"
+                    "partial2_points_values"
+                ),
+                "Pontos da Parcial 2 do Trade 2",
+            ),
+            (
+                "stage21_trade2_partial2_mode",
+                (
+                    "stage21_trade2_"
+                    "partial2_pct_values"
+                ),
+                "% da Parcial 2 do Trade 2",
+            ),
+            (
+                "stage21_trade2_partial3_mode",
+                (
+                    "stage21_trade2_"
+                    "partial3_points_values"
+                ),
+                "Pontos da Parcial 3 do Trade 2",
+            ),
+            (
+                "stage21_trade2_partial3_mode",
+                (
+                    "stage21_trade2_"
+                    "partial3_pct_values"
+                ),
+                "% da Parcial 3 do Trade 2",
+            ),
+            (
+                "stage21_trade2_runner_mode",
+                (
+                    "stage21_trade2_"
+                    "runner_pct_values"
+                ),
+                "% Runner do Trade 2",
+            ),
+            (
+                "stage21_trade2_target_mode",
+                (
+                    "stage21_trade2_"
+                    "target_values"
+                ),
+                "Target final do Trade 2",
+            ),
+        ]
+
+        for (
+            mode_key,
+            values_key,
+            label,
+        ) in configured_lists:
+            if (
+                st.session_state.get(
+                    mode_key
+                )
+                == "Configurar"
+                and not st.session_state.get(
+                    values_key
+                )
+            ):
+                errors.append(
+                    (
+                        f"{label}: selecione "
+                        "pelo menos um valor."
+                    )
+                )
 
     if not stop_values:
         errors.append(

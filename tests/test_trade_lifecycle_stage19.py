@@ -840,3 +840,256 @@ def test_lifecycle_input_is_idempotent_and_not_mutated():
     assert first == second
     assert trajectory == original_trajectory
     assert trade1 == original_trade1
+
+
+
+
+def test_trade2_disabled_does_not_evaluate_eligibility():
+    trajectory = [
+        {
+            "timestamp": "2026-08-18T10:30:00-03:00",
+            "trade_number": 1,
+            "price": 1000.0,
+        },
+        {
+            "timestamp": "2026-08-18T10:31:00-03:00",
+            "trade_number": 2,
+            "price": 830.0,
+        },
+        {
+            "timestamp": "2026-08-18T10:32:00-03:00",
+            "trade_number": 3,
+            "price": 1000.0,
+        },
+        {
+            "timestamp": "2026-08-18T10:33:00-03:00",
+            "trade_number": 4,
+            "price": 1200.0,
+        },
+    ]
+
+    config = ManagementConfig(
+        stop_points=170.0,
+        final_target_points=400.0,
+    )
+
+    trade1_management = {
+        "final_reason": "STOP",
+        "total_weighted_points": -170.0,
+        "executions": [
+            {
+                "timestamp": (
+                    "2026-08-18T10:31:00-03:00"
+                ),
+                "trade_number": 2,
+            }
+        ],
+    }
+
+    result = simulate_trade_lifecycle(
+        trajectory=trajectory,
+        date="2026-08-18",
+        trade1_status="TRADE_1",
+        direction="LONG",
+        entry_price=1000.0,
+        management_config=config,
+        trade1_management=(
+            trade1_management
+        ),
+        lifecycle_config=(
+            TradeLifecycleConfig(
+                trade2_enabled=False,
+                eligible_after=(
+                    "STOP",
+                ),
+            )
+        ),
+    )
+
+    assert (
+        result["trade2"]["eligible"]
+        is False
+    )
+
+    assert (
+        result["trade2"]["reason"]
+        == "TRADE2_DISABLED"
+    )
+
+    assert (
+        result["trade2_occurred"]
+        is False
+    )
+
+    assert (
+        result["trade2_executed"]
+        is False
+    )
+
+    assert (
+        result["trade2_result_points"]
+        is None
+    )
+
+    assert (
+        result[
+            "consolidated_result_points"
+        ]
+        == -170.0
+    )
+
+
+def test_trade2_disabled_ignores_revisited_trigger():
+    trajectory = [
+        {
+            "timestamp": "2026-08-18T10:30:00-03:00",
+            "trade_number": 1,
+            "price": 1000.0,
+        },
+        {
+            "timestamp": "2026-08-18T10:31:00-03:00",
+            "trade_number": 2,
+            "price": 830.0,
+        },
+        {
+            "timestamp": "2026-08-18T10:32:00-03:00",
+            "trade_number": 3,
+            "price": 1000.0,
+        },
+        {
+            "timestamp": "2026-08-18T10:33:00-03:00",
+            "trade_number": 4,
+            "price": 1400.0,
+        },
+    ]
+
+    config = ManagementConfig(
+        stop_points=170.0,
+        final_target_points=400.0,
+    )
+
+    trade1_management = {
+        "final_reason": "STOP",
+        "total_weighted_points": -170.0,
+        "executions": [
+            {
+                "timestamp": (
+                    "2026-08-18T10:31:00-03:00"
+                ),
+                "trade_number": 2,
+            }
+        ],
+    }
+
+    result = simulate_trade_lifecycle(
+        trajectory=trajectory,
+        date="2026-08-18",
+        trade1_status="TRADE_1",
+        direction="LONG",
+        entry_price=1000.0,
+        management_config=config,
+        trade1_management=(
+            trade1_management
+        ),
+        lifecycle_config=(
+            TradeLifecycleConfig(
+                trade2_enabled=False,
+            )
+        ),
+    )
+
+    assert (
+        result["trade2"]["exists"]
+        is False
+    )
+
+    assert (
+        result["trade2"]["entry_timestamp"]
+        is None
+    )
+
+    assert (
+        result["trade2"]["management"]
+        is None
+    )
+
+    assert (
+        result["trade2_result_points"]
+        is None
+    )
+
+
+def test_trade2_enabled_preserves_historical_behavior():
+    trajectory = [
+        {
+            "timestamp": "2026-08-18T10:30:00-03:00",
+            "trade_number": 1,
+            "price": 1000.0,
+        },
+        {
+            "timestamp": "2026-08-18T10:31:00-03:00",
+            "trade_number": 2,
+            "price": 830.0,
+        },
+        {
+            "timestamp": "2026-08-18T10:32:00-03:00",
+            "trade_number": 3,
+            "price": 1000.0,
+        },
+        {
+            "timestamp": "2026-08-18T10:33:00-03:00",
+            "trade_number": 4,
+            "price": 1400.0,
+        },
+    ]
+
+    config = ManagementConfig(
+        stop_points=170.0,
+        final_target_points=400.0,
+    )
+
+    trade1_management = {
+        "final_reason": "STOP",
+        "total_weighted_points": -170.0,
+        "executions": [
+            {
+                "timestamp": (
+                    "2026-08-18T10:31:00-03:00"
+                ),
+                "trade_number": 2,
+            }
+        ],
+    }
+
+    explicit_on = simulate_trade_lifecycle(
+        trajectory=trajectory,
+        date="2026-08-18",
+        trade1_status="TRADE_1",
+        direction="LONG",
+        entry_price=1000.0,
+        management_config=config,
+        trade1_management=(
+            trade1_management
+        ),
+        lifecycle_config=(
+            TradeLifecycleConfig(
+                trade2_enabled=True,
+            )
+        ),
+    )
+
+    historical_default = (
+        simulate_trade_lifecycle(
+            trajectory=trajectory,
+            date="2026-08-18",
+            trade1_status="TRADE_1",
+            direction="LONG",
+            entry_price=1000.0,
+            management_config=config,
+            trade1_management=(
+                trade1_management
+            ),
+        )
+    )
+
+    assert explicit_on == historical_default

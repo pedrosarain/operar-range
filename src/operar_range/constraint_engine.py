@@ -14,6 +14,19 @@ from typing import Any, Callable
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from operar_range.management import (
+    ManagementConfig,
+)
+from operar_range.trade2_configuration import (
+    TRADE2_OVERRIDE_FIELDS,
+    management_config_sha256,
+    normalize_trade2_overrides,
+    resolve_trade2_management_config,
+    trade2_control_from_row,
+    trade2_has_explicit_overrides,
+    validate_trade2_control,
+)
+
 
 ENGINE_VERSION = "constraint-engine-v1"
 RULE_VERSION = "1"
@@ -975,6 +988,274 @@ def rule_manifest_rows(
     ]
 
 
+def _management_config_from_row(
+    row: dict[str, Any],
+) -> ManagementConfig:
+    return ManagementConfig(
+        stop_points=float(
+            row[
+                "stop_points"
+            ]
+        ),
+        partial_1_points=(
+            row.get(
+                "partial_1_points"
+            )
+        ),
+        partial_1_pct=(
+            row.get(
+                "partial_1_pct"
+            )
+        ),
+        partial_2_points=(
+            row.get(
+                "partial_2_points"
+            )
+        ),
+        partial_2_pct=(
+            row.get(
+                "partial_2_pct"
+            )
+        ),
+        partial_3_points=(
+            row.get(
+                "partial_3_points"
+            )
+        ),
+        partial_3_pct=(
+            row.get(
+                "partial_3_pct"
+            )
+        ),
+        break_even_enabled=bool(
+            row.get(
+                "break_even_enabled"
+            )
+        ),
+        break_even_after_partial=(
+            row.get(
+                "break_even_after_partial"
+            )
+        ),
+        final_target_points=(
+            row.get(
+                "final_target_points"
+            )
+        ),
+        runner_enabled=bool(
+            row.get(
+                "runner_enabled"
+            )
+        ),
+        runner_pct=(
+            row.get(
+                "runner_pct"
+            )
+        ),
+        runner_exit_rule=(
+            row.get(
+                "runner_rule"
+            )
+        ),
+        position_size=100.0,
+    )
+
+
+def _constraint_dict_from_management(
+    config: ManagementConfig,
+) -> dict[str, Any]:
+    return {
+        "stop_points": (
+            config.stop_points
+        ),
+        "partial_1_points": (
+            config.partial_1_points
+        ),
+        "partial_1_pct": (
+            config.partial_1_pct
+        ),
+        "partial_2_points": (
+            config.partial_2_points
+        ),
+        "partial_2_pct": (
+            config.partial_2_pct
+        ),
+        "partial_3_points": (
+            config.partial_3_points
+        ),
+        "partial_3_pct": (
+            config.partial_3_pct
+        ),
+        "break_even_enabled": (
+            config.break_even_enabled
+        ),
+        "break_even_after_partial": (
+            config.break_even_after_partial
+        ),
+        "runner_enabled": (
+            config.runner_enabled
+        ),
+        "runner_pct": (
+            config.runner_pct
+        ),
+        "runner_rule": (
+            config.runner_exit_rule
+        ),
+        "final_target_points": (
+            config.final_target_points
+        ),
+    }
+
+
+def evaluate_trade2_effective_config(
+    row: dict[str, Any],
+    *,
+    rules: tuple[Rule, ...] = RULES,
+) -> tuple[
+    list[Finding],
+    list[Finding],
+]:
+    try:
+        validate_trade2_control(
+            row
+        )
+    except ValueError as exc:
+        return (
+            [
+                Finding(
+                    "C015",
+                    (
+                        "Trade 2 control: "
+                        f"{exc}"
+                    ),
+                    "ERROR",
+                )
+            ],
+            [],
+        )
+
+    control = trade2_control_from_row(
+        row
+    )
+
+    #
+    # Trade 2 OFF é uma configuração válida.
+    # Não existe gestão efetiva a ser usada
+    # economicamente no ciclo.
+    #
+    if (
+        control[
+            "trade2_enabled"
+        ]
+        is False
+    ):
+        return (
+            [],
+            [],
+        )
+
+    raw_overrides = {
+        field: row[
+            field
+        ]
+        for field in (
+            TRADE2_OVERRIDE_FIELDS
+        )
+        if field in row
+    }
+
+    normalized = (
+        normalize_trade2_overrides(
+            raw_overrides
+        )
+    )
+
+    if not trade2_has_explicit_overrides(
+        normalized
+    ):
+        return (
+            [],
+            [],
+        )
+
+    trade1_config = (
+        _management_config_from_row(
+            row
+        )
+    )
+
+    effective = (
+        resolve_trade2_management_config(
+            trade1_config=(
+                trade1_config
+            ),
+            overrides=(
+                normalized
+            ),
+            validate_effective=False,
+        )
+    )
+
+    expected_hash = row.get(
+        "trade2_effective_config_sha256"
+    )
+
+    actual_hash = (
+        management_config_sha256(
+            effective
+        )
+    )
+
+    if (
+        expected_hash is not None
+        and str(
+            expected_hash
+        )
+        != actual_hash
+    ):
+        raise RuntimeError(
+            (
+                "Trade 2 effective config "
+                "hash mismatch for "
+                f"{row.get('experiment_id')}."
+            )
+        )
+
+    (
+        errors,
+        warnings,
+    ) = evaluate_config(
+        _constraint_dict_from_management(
+            effective
+        ),
+        rules=rules,
+    )
+
+    def contextualize(
+        findings: list[Finding],
+    ) -> list[Finding]:
+        return [
+            Finding(
+                finding.rule_code,
+                (
+                    "Trade 2 effective config: "
+                    f"{finding.message}"
+                ),
+                finding.severity,
+            )
+            for finding in findings
+        ]
+
+    return (
+        contextualize(
+            errors
+        ),
+        contextualize(
+            warnings
+        ),
+    )
+
+
 def evaluate_config(
     config: dict[str, Any],
     *,
@@ -1257,6 +1538,23 @@ def run_constraint_engine(
             evaluate_config(
                 row
             )
+        )
+
+        (
+            trade2_errors,
+            trade2_warnings,
+        ) = (
+            evaluate_trade2_effective_config(
+                row
+            )
+        )
+
+        errors.extend(
+            trade2_errors
+        )
+
+        warnings.extend(
+            trade2_warnings
         )
 
         config_hash = row.get(

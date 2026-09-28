@@ -2,11 +2,25 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+
+from operar_range.management import (
+    ManagementConfig,
+)
+from operar_range.trade2_configuration import (
+    TRADE2_OVERRIDE_FIELDS,
+    management_config_sha256,
+    normalize_trade2_overrides,
+    resolve_trade2_management_config,
+    trade2_control_from_row,
+    trade2_has_explicit_overrides,
+    trade2_override_sha256,
+)
 
 
 LINEAGE_ADAPTER_VERSION = (
@@ -291,7 +305,11 @@ def _results_by_experiment(
 def _config_payload(
     row: dict[str, Any],
 ) -> dict[str, Any]:
-    payload = {}
+    #
+    # Preserva os campos históricos no topo
+    # do config_json para compatibilidade.
+    #
+    trade1_payload = {}
 
     for field in CONFIG_FIELDS:
         if field not in row:
@@ -301,11 +319,281 @@ def _config_payload(
                 f"field: {field}"
             )
 
-        payload[
+        trade1_payload[
             field
         ] = row.get(
             field
         )
+
+    #
+    # BACKWARD COMPATIBILITY:
+    #
+    # Artifacts anteriores à Stage 21 não
+    # possuíam controle explícito de Trade 2.
+    # O config_json histórico precisa permanecer
+    # byte-semantically equivalente ao contrato
+    # anterior: somente CONFIG_FIELDS do Trade 1.
+    #
+    stage21_explicit = (
+        (
+            "trade2_enabled"
+            in row
+            and row.get(
+                "trade2_enabled"
+            )
+            is not None
+        )
+        or (
+            "trade2_management_mode"
+            in row
+            and row.get(
+                "trade2_management_mode"
+            )
+            is not None
+        )
+    )
+
+    if not stage21_explicit:
+        return trade1_payload
+
+    trade1_config = ManagementConfig(
+        stop_points=float(
+            trade1_payload[
+                "stop_points"
+            ]
+        ),
+        partial_1_points=(
+            trade1_payload[
+                "partial_1_points"
+            ]
+        ),
+        partial_1_pct=(
+            trade1_payload[
+                "partial_1_pct"
+            ]
+        ),
+        partial_2_points=(
+            trade1_payload[
+                "partial_2_points"
+            ]
+        ),
+        partial_2_pct=(
+            trade1_payload[
+                "partial_2_pct"
+            ]
+        ),
+        partial_3_points=(
+            trade1_payload[
+                "partial_3_points"
+            ]
+        ),
+        partial_3_pct=(
+            trade1_payload[
+                "partial_3_pct"
+            ]
+        ),
+        break_even_enabled=bool(
+            trade1_payload[
+                "break_even_enabled"
+            ]
+        ),
+        break_even_after_partial=(
+            trade1_payload[
+                "break_even_after_partial"
+            ]
+        ),
+        runner_enabled=bool(
+            trade1_payload[
+                "runner_enabled"
+            ]
+        ),
+        runner_pct=(
+            trade1_payload[
+                "runner_pct"
+            ]
+        ),
+        runner_exit_rule=(
+            trade1_payload[
+                "runner_rule"
+            ]
+        ),
+        final_target_points=(
+            trade1_payload[
+                "final_target_points"
+            ]
+        ),
+        position_size=100.0,
+    )
+
+    raw_trade2_overrides = {
+        field: row[
+            field
+        ]
+        for field
+        in TRADE2_OVERRIDE_FIELDS
+        if field in row
+    }
+
+    trade2_overrides = (
+        normalize_trade2_overrides(
+            raw_trade2_overrides
+        )
+    )
+
+    trade2_control = (
+        trade2_control_from_row(
+            row
+        )
+    )
+
+    effective_trade2 = (
+        resolve_trade2_management_config(
+            trade1_config=(
+                trade1_config
+            ),
+            overrides=(
+                trade2_overrides
+            ),
+            validate_effective=False,
+        )
+    )
+
+    calculated_trade1_hash = (
+        management_config_sha256(
+            trade1_config
+        )
+    )
+
+    calculated_override_hash = (
+        trade2_override_sha256(
+            trade2_overrides
+        )
+    )
+
+    calculated_effective_hash = (
+        management_config_sha256(
+            effective_trade2
+        )
+    )
+
+    #
+    # Se hashes Stage 21 estiverem fisicamente
+    # presentes, precisam corresponder ao que
+    # pode ser reconstruído do lineage.
+    #
+    expected_trade1_hash = row.get(
+        "trade1_config_sha256"
+    )
+
+    if (
+        expected_trade1_hash is not None
+        and str(
+            expected_trade1_hash
+        )
+        != calculated_trade1_hash
+    ):
+        raise RuntimeError(
+            (
+                "Trade 1 config hash mismatch "
+                "while building lineage for "
+                f"{row.get('experiment_id')}."
+            )
+        )
+
+    expected_override_hash = row.get(
+        "trade2_override_sha256"
+    )
+
+    if (
+        expected_override_hash is not None
+        and str(
+            expected_override_hash
+        )
+        != calculated_override_hash
+    ):
+        raise RuntimeError(
+            (
+                "Trade 2 override hash mismatch "
+                "while building lineage for "
+                f"{row.get('experiment_id')}."
+            )
+        )
+
+    expected_effective_hash = row.get(
+        "trade2_effective_config_sha256"
+    )
+
+    if (
+        expected_effective_hash is not None
+        and str(
+            expected_effective_hash
+        )
+        != calculated_effective_hash
+    ):
+        raise RuntimeError(
+            (
+                "Trade 2 effective config hash "
+                "mismatch while building lineage "
+                f"for {row.get('experiment_id')}."
+            )
+        )
+
+    payload = dict(
+        trade1_payload
+    )
+
+    payload.update(
+        {
+            "trade1_configuration": (
+                asdict(
+                    trade1_config
+                )
+            ),
+            "trade2_enabled": (
+                trade2_control[
+                    "trade2_enabled"
+                ]
+            ),
+            "trade2_management_mode": (
+                trade2_control[
+                    "trade2_management_mode"
+                ]
+            ),
+            "trade2_legacy_semantics": (
+                trade2_control[
+                    "legacy_semantics"
+                ]
+            ),
+            "trade2_overrides": (
+                trade2_overrides
+            ),
+            (
+                "trade2_effective_configuration"
+            ): (
+                asdict(
+                    effective_trade2
+                )
+            ),
+            "trade1_config_sha256": (
+                calculated_trade1_hash
+            ),
+            "trade2_override_sha256": (
+                calculated_override_hash
+            ),
+            (
+                "trade2_effective_config_sha256"
+            ): (
+                calculated_effective_hash
+            ),
+            (
+                "trade2_has_explicit_overrides"
+            ): (
+                trade2_has_explicit_overrides(
+                    trade2_overrides
+                )
+            ),
+        }
+    )
 
     return payload
 

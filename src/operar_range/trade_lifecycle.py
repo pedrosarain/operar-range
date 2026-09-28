@@ -19,6 +19,8 @@ TRADE_LIFECYCLE_VERSION = (
 
 @dataclass(frozen=True)
 class TradeLifecycleConfig:
+    trade2_enabled: bool = True
+
     eligible_after: tuple[str, ...] = (
         "STOP",
     )
@@ -264,6 +266,10 @@ def simulate_trade_lifecycle(
         dict[str, Any]
         | None
     ),
+    trade2_management_config: (
+        ManagementConfig
+        | None
+    ) = None,
     runner_candles: (
         list[M5Candle]
         | None
@@ -316,6 +322,43 @@ def simulate_trade_lifecycle(
                         "total_weighted_points"
                     ]
                 )
+            ),
+        }
+
+    if not lifecycle_config.trade2_enabled:
+        trade2 = _empty_trade2(
+            eligible=False,
+            reason="TRADE2_DISABLED",
+            direction=direction,
+            trigger_level=(
+                float(
+                    entry_price
+                )
+            ),
+        )
+
+        trade1_result = float(
+            trade1_management[
+                "total_weighted_points"
+            ]
+        )
+
+        return {
+            "lifecycle_version": (
+                TRADE_LIFECYCLE_VERSION
+            ),
+            "trade1": (
+                trade1_management
+            ),
+            "trade2": trade2,
+            "trade2_occurred": False,
+            "trade2_executed": False,
+            "trade2_winner": False,
+            "trade2_loser": False,
+            "trade2_breakeven": False,
+            "trade2_result_points": None,
+            "consolidated_result_points": (
+                trade1_result
             ),
         }
 
@@ -492,6 +535,13 @@ def simulate_trade_lifecycle(
         ]
     )
 
+    effective_trade2_management_config = (
+        trade2_management_config
+        if trade2_management_config
+        is not None
+        else management_config
+    )
+
     management = simulate_management(
         trajectory=(
             trade2_trajectory
@@ -502,7 +552,7 @@ def simulate_trade_lifecycle(
             trigger_level
         ),
         config=(
-            management_config
+            effective_trade2_management_config
         ),
         runner_candles=(
             runner_candles

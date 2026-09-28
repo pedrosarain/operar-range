@@ -22,6 +22,7 @@ from operar_range.batch_executor import (
 )
 from operar_range.constraint_engine import (
     evaluate_config,
+    evaluate_trade2_effective_config,
     run_constraint_engine,
 )
 from operar_range.distributed_executor import (
@@ -1495,6 +1496,18 @@ def estimate_research(
         ]
     )
 
+    trade2_base_overrides = (
+        definition.get(
+            "trade2_base_overrides"
+        )
+    )
+
+    trade2_parameter_definition = (
+        definition.get(
+            "trade2_parameter_definition"
+        )
+    )
+
     configurations = (
         generate_configurations(
             base_config=(
@@ -1502,6 +1515,22 @@ def estimate_research(
             ),
             parameter_definition=(
                 parameter_definition
+            ),
+            trade2_base_overrides=(
+                trade2_base_overrides
+            ),
+            trade2_parameter_definition=(
+                trade2_parameter_definition
+            ),
+            trade2_enabled=(
+                definition.get(
+                    "trade2_enabled"
+                )
+            ),
+            trade2_management_mode=(
+                definition.get(
+                    "trade2_management_mode"
+                )
             ),
         )
     )
@@ -1528,6 +1557,19 @@ def estimate_research(
             evaluate_config(
                 config
             )
+        )
+
+        (
+            trade2_errors,
+            _trade2_warnings,
+        ) = (
+            evaluate_trade2_effective_config(
+                config
+            )
+        )
+
+        errors.extend(
+            trade2_errors
         )
 
         if errors:
@@ -2100,6 +2142,26 @@ def execute_research(
                     definition[
                         "parameter_definition"
                     ]
+                ),
+                trade2_base_overrides=(
+                    definition.get(
+                        "trade2_base_overrides"
+                    )
+                ),
+                trade2_parameter_definition=(
+                    definition.get(
+                        "trade2_parameter_definition"
+                    )
+                ),
+                trade2_enabled=(
+                    definition.get(
+                        "trade2_enabled"
+                    )
+                ),
+                trade2_management_mode=(
+                    definition.get(
+                        "trade2_management_mode"
+                    )
                 ),
                 existing_generated_path=None,
                 registry_path=(

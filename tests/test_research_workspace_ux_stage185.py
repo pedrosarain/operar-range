@@ -386,3 +386,72 @@ def test_no_new_quantitative_engine_was_added():
             / "src/operar_range"
             / filename
         ).exists()
+
+
+def test_stage21_workspace_exposes_trade2_controls():
+    source = (
+        APP_ROOT
+        / "app/pages/new_research.py"
+    ).read_text(
+        encoding="utf-8"
+    )
+
+    required = [
+        "Trade 2",
+        "Desligado — pesquisar ",
+        "somente Trade 1",
+        "Gestão do Trade 2",
+        "Herdar gestão do Trade 1",
+        "Personalizar Trade 2",
+        "stage21_trade2_enabled",
+        "stage21_trade2_management",
+    ]
+
+    for value in required:
+        assert value in source
+
+
+def test_stage21_workspace_does_not_expose_internal_sentinels():
+    source = (
+        APP_ROOT
+        / "app/pages/new_research.py"
+    ).read_text(
+        encoding="utf-8"
+    )
+
+    # Os valores internos existem na tradução
+    # técnica, mas não devem ser apresentados
+    # como options visuais do pesquisador.
+    assert (
+        'options=["INHERIT"'
+        not in source
+    )
+
+    assert (
+        'options=["CONFIGURE"'
+        not in source
+    )
+
+    assert (
+        'options=["DISABLE"'
+        not in source
+    )
+
+
+def test_stage21_definition_contains_trade2_contract():
+    source = (
+        APP_ROOT
+        / "app/pages/new_research.py"
+    ).read_text(
+        encoding="utf-8"
+    )
+
+    required = [
+        '"trade2_enabled"',
+        '"trade2_management_mode"',
+        '"trade2_base_overrides"',
+        '"trade2_parameter_definition"',
+    ]
+
+    for value in required:
+        assert value in source

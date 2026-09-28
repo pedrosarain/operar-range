@@ -26,6 +26,12 @@ from operar_range.trade_lifecycle import (
     TradeLifecycleConfig,
     simulate_trade_lifecycle,
 )
+from operar_range.trade2_configuration import (
+    TRADE2_OVERRIDE_FIELDS,
+    normalize_trade2_overrides,
+    resolve_trade2_management_config,
+    trade2_control_from_row,
+)
 
 
 BATCH_RESULT_SCHEMA = pa.schema(
@@ -135,6 +141,10 @@ BATCH_RESULT_SCHEMA = pa.schema(
             pa.bool_(),
         ),
         (
+            "trade2_reason",
+            pa.string(),
+        ),
+        (
             "trade2_final_reason",
             pa.string(),
         ),
@@ -236,6 +246,39 @@ def _optional_float(
         return None
 
     return float(value)
+
+
+def trade2_management_config_from_row(
+    *,
+    row: dict[str, Any],
+    trade1_config: ManagementConfig,
+) -> ManagementConfig:
+    raw_overrides = {
+        field: row[
+            field
+        ]
+        for field in (
+            TRADE2_OVERRIDE_FIELDS
+        )
+        if field in row
+    }
+
+    normalized = (
+        normalize_trade2_overrides(
+            raw_overrides
+        )
+    )
+
+    return (
+        resolve_trade2_management_config(
+            trade1_config=(
+                trade1_config
+            ),
+            overrides=(
+                normalized
+            ),
+        )
+    )
 
 
 def management_config_from_row(
@@ -467,6 +510,7 @@ def _base_result(
         "trade2_entry_trade_number": None,
         "trade2_first_traded_price": None,
         "trade2_jumped_entry_level": None,
+        "trade2_reason": None,
         "trade2_final_reason": None,
         "trade2_final_timestamp": None,
         "trade2_final_price": None,
@@ -773,6 +817,19 @@ def execute_batch(
                 )
             )
 
+            trade2_control = (
+                trade2_control_from_row(
+                    experiment
+                )
+            )
+
+            trade2_config = (
+                trade2_management_config_from_row(
+                    row=experiment,
+                    trade1_config=config,
+                )
+            )
+
             base = _base_result(
                 execution_unit=unit,
                 experiment=experiment,
@@ -837,7 +894,17 @@ def execute_batch(
 
             runner_candles = None
 
-            if config.runner_enabled:
+            requires_runner_candles = (
+                config.runner_enabled
+                or (
+                    trade2_control[
+                        "trade2_enabled"
+                    ]
+                    and trade2_config.runner_enabled
+                )
+            )
+
+            if requires_runner_candles:
                 if date not in candle_cache:
                     source_parquet = (
                         day.get(
@@ -936,14 +1003,22 @@ def execute_batch(
                     trade1_management=(
                         management_result
                     ),
+                    trade2_management_config=(
+                        trade2_config
+                    ),
                     runner_candles=(
                         runner_candles
                     ),
                     lifecycle_config=(
                         TradeLifecycleConfig(
+                            trade2_enabled=(
+                                trade2_control[
+                                    "trade2_enabled"
+                                ]
+                            ),
                             eligible_after=(
                                 "STOP",
-                            )
+                            ),
                         )
                     ),
                 )
@@ -1076,6 +1151,12 @@ def execute_batch(
                 "trade2_jumped_entry_level"
             ] = trade2[
                 "jumped_entry_level"
+            ]
+
+            base[
+                "trade2_reason"
+            ] = trade2[
+                "reason"
             ]
 
             base[
