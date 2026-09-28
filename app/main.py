@@ -42,6 +42,7 @@ from app.pages import rankings  # noqa: E402
 from app.pages import researches  # noqa: E402
 from app.pages import sessions  # noqa: E402
 from app.pages import system  # noqa: E402
+from app.pages import trade_lifecycle_analytics  # noqa: E402
 
 
 APP_TITLE = (
@@ -55,6 +56,9 @@ PAGES = {
     "Nova Pesquisa": new_research.render,
     "Pesquisas": researches.render,
     "Experiments": experiments.render,
+    "Trade Lifecycle Analytics": (
+        trade_lifecycle_analytics.render
+    ),
     "Rankings": rankings.render,
     "Compare": compare.render,
     "Sessions": sessions.render,

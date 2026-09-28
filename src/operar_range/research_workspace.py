@@ -14,6 +14,9 @@ import pyarrow.parquet as pq
 from operar_range.analytics import (
     run_analytics,
 )
+from operar_range.trade_lifecycle_analytics import (
+    run_trade_lifecycle_analytics,
+)
 from operar_range.batch_executor import (
     build_execution_plan,
 )
@@ -426,6 +429,18 @@ def research_paths(
         "metrics_monthly": (
             root
             / "experiment_metrics_monthly.parquet"
+        ),
+        "trade2_analytics": (
+            root
+            / "trade2_analytics.parquet"
+        ),
+        "consolidated_analytics": (
+            root
+            / "trade_lifecycle_consolidated_analytics.parquet"
+        ),
+        "lifecycle_comparison": (
+            root
+            / "trade1_vs_lifecycle_comparison.parquet"
         ),
         "rankings": (
             root
@@ -2456,6 +2471,54 @@ def execute_research(
         update_run_manifest(
             research_id,
             current_stage=(
+                "TRADE_LIFECYCLE_ANALYTICS"
+            ),
+        )
+
+        _progress(
+            progress_callback,
+            "TRADE_LIFECYCLE_ANALYTICS",
+            0.88,
+        )
+
+        lifecycle_analytics = (
+            run_trade_lifecycle_analytics(
+                results_path=(
+                    paths[
+                        "distributed_results"
+                    ]
+                ),
+                manifest_path=(
+                    paths[
+                        "experiment_manifest"
+                    ]
+                ),
+                trade1_metrics_path=(
+                    paths[
+                        "metrics"
+                    ]
+                ),
+                trade2_analytics_path=(
+                    paths[
+                        "trade2_analytics"
+                    ]
+                ),
+                consolidated_analytics_path=(
+                    paths[
+                        "consolidated_analytics"
+                    ]
+                ),
+                comparison_path=(
+                    paths[
+                        "lifecycle_comparison"
+                    ]
+                ),
+            )
+        )
+
+        update_run_manifest(
+            research_id,
+            current_stage=(
                 "RANKING"
             ),
         )
@@ -2674,6 +2737,9 @@ def research_result_paths(
             "metrics",
             "metrics_yearly",
             "metrics_monthly",
+            "trade2_analytics",
+            "consolidated_analytics",
+            "lifecycle_comparison",
             "rankings",
             "ranking_manifest",
             "ranking_summary",

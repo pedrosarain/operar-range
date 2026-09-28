@@ -55,6 +55,18 @@ DATASETS = {
         RESEARCH_ROOT
         / "experiment_metrics_monthly.parquet"
     ),
+    "trade2_analytics": (
+        RESEARCH_ROOT
+        / "trade2_analytics.parquet"
+    ),
+    "consolidated_analytics": (
+        RESEARCH_ROOT
+        / "trade_lifecycle_consolidated_analytics.parquet"
+    ),
+    "lifecycle_comparison": (
+        RESEARCH_ROOT
+        / "trade1_vs_lifecycle_comparison.parquet"
+    ),
     "experiment_rankings": (
         RESEARCH_ROOT
         / "experiment_rankings.parquet"
@@ -97,6 +109,9 @@ RESEARCH_DATASET_OVERRIDES = {
     "experiment_metrics": "metrics",
     "experiment_metrics_yearly": "metrics_yearly",
     "experiment_metrics_monthly": "metrics_monthly",
+    "trade2_analytics": "trade2_analytics",
+    "consolidated_analytics": "consolidated_analytics",
+    "lifecycle_comparison": "lifecycle_comparison",
     "experiment_rankings": "rankings",
     "ranking_manifest": "ranking_manifest",
     "batch_execution_plan": "batch_plan",
@@ -653,6 +668,24 @@ def experiment_metrics_monthly() -> pd.DataFrame:
 def experiment_results() -> pd.DataFrame:
     return dataset(
         "experiment_results"
+    )
+
+
+def trade2_analytics() -> pd.DataFrame:
+    return dataset(
+        "trade2_analytics"
+    )
+
+
+def consolidated_analytics() -> pd.DataFrame:
+    return dataset(
+        "consolidated_analytics"
+    )
+
+
+def lifecycle_comparison() -> pd.DataFrame:
+    return dataset(
+        "lifecycle_comparison"
     )
 
 
