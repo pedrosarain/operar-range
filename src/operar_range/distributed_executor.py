@@ -746,8 +746,47 @@ def serialize_batch(
         ),
     )
 
+    #
+    # O trajectory manifest faz parte do
+    # contrato físico distribuído.
+    #
+    # Assim como o batch plan, ele não pode
+    # carregar paths absolutos da máquina que
+    # criou o pacote.
+    #
+    # O artifact de origem permanece intacto.
+    # Apenas a cópia serializada para o worker
+    # recebe paths relativos ao project_root.
+    #
+    package_trajectory_rows = []
+
+    for row in trajectory_rows:
+        copied = dict(
+            row
+        )
+
+        trajectory_path = (
+            copied.get(
+                "trajectory_path"
+            )
+        )
+
+        if trajectory_path:
+            copied[
+                "trajectory_path"
+            ] = _relative_path(
+                path=trajectory_path,
+                project_root=(
+                    project_root
+                ),
+            )
+
+        package_trajectory_rows.append(
+            copied
+        )
+
     _write_rows(
-        rows=trajectory_rows,
+        rows=package_trajectory_rows,
         schema=(
             trajectory_table.schema
         ),

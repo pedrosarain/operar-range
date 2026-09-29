@@ -12,6 +12,9 @@ import pyarrow.parquet as pq
 from operar_range.management import (
     ManagementConfig,
 )
+from operar_range.experiment_generator import (
+    config_sha256 as experiment_config_sha256,
+)
 from operar_range.trade2_configuration import (
     TRADE2_OVERRIDE_FIELDS,
     management_config_sha256,
@@ -302,6 +305,55 @@ def _results_by_experiment(
     return result
 
 
+def _normalize_historical_config_hash_payload(
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Restaura a representação numérica usada
+    historicamente pelo Experiment Generator
+    antes do round-trip por Parquet.
+
+    Campos float cujo valor é matematicamente
+    integral são convertidos para int.
+
+    Exemplo:
+        170.0 -> 170
+        125.0 -> 125
+
+    Floats não integrais permanecem float.
+
+    A função existe exclusivamente para
+    reconstrução de identidade/hash histórico.
+    """
+    normalized: dict[
+        str,
+        Any,
+    ] = {}
+
+    for key, value in (
+        payload.items()
+    ):
+        if (
+            isinstance(
+                value,
+                float,
+            )
+            and value.is_integer()
+        ):
+            normalized[
+                key
+            ] = int(
+                value
+            )
+
+        else:
+            normalized[
+                key
+            ] = value
+
+    return normalized
+
+
 def _config_payload(
     row: dict[str, Any],
 ) -> dict[str, Any]:
@@ -356,69 +408,90 @@ def _config_payload(
     if not stage21_explicit:
         return trade1_payload
 
+    #
+    # Restaura a representação numérica usada
+    # originalmente pelo Experiment Generator.
+    #
+    # Essa representação deve alimentar não apenas
+    # trade1_config_sha256, mas também a resolução
+    # do Trade 2 efetivo. Caso contrário, um
+    # ManagementConfig reconstruído após Parquet
+    # possui 125.0/70.0/400.0 em vez de
+    # 125/70/400 e produz outro hash.
+    #
+    historical_trade1_payload = (
+        _normalize_historical_config_hash_payload(
+            trade1_payload
+        )
+    )
+
     trade1_config = ManagementConfig(
+        #
+        # O Generator historicamente força
+        # stop_points para float.
+        #
         stop_points=float(
-            trade1_payload[
+            historical_trade1_payload[
                 "stop_points"
             ]
         ),
         partial_1_points=(
-            trade1_payload[
+            historical_trade1_payload[
                 "partial_1_points"
             ]
         ),
         partial_1_pct=(
-            trade1_payload[
+            historical_trade1_payload[
                 "partial_1_pct"
             ]
         ),
         partial_2_points=(
-            trade1_payload[
+            historical_trade1_payload[
                 "partial_2_points"
             ]
         ),
         partial_2_pct=(
-            trade1_payload[
+            historical_trade1_payload[
                 "partial_2_pct"
             ]
         ),
         partial_3_points=(
-            trade1_payload[
+            historical_trade1_payload[
                 "partial_3_points"
             ]
         ),
         partial_3_pct=(
-            trade1_payload[
+            historical_trade1_payload[
                 "partial_3_pct"
             ]
         ),
         break_even_enabled=bool(
-            trade1_payload[
+            historical_trade1_payload[
                 "break_even_enabled"
             ]
         ),
         break_even_after_partial=(
-            trade1_payload[
+            historical_trade1_payload[
                 "break_even_after_partial"
             ]
         ),
         runner_enabled=bool(
-            trade1_payload[
+            historical_trade1_payload[
                 "runner_enabled"
             ]
         ),
         runner_pct=(
-            trade1_payload[
+            historical_trade1_payload[
                 "runner_pct"
             ]
         ),
         runner_exit_rule=(
-            trade1_payload[
+            historical_trade1_payload[
                 "runner_rule"
             ]
         ),
         final_target_points=(
-            trade1_payload[
+            historical_trade1_payload[
                 "final_target_points"
             ]
         ),
@@ -458,9 +531,21 @@ def _config_payload(
         )
     )
 
+    #
+    # CONTRATO DE IDENTIDADE DO TRADE 1:
+    #
+    # O campo trade1_config_sha256 é produzido
+    # originalmente pelo Experiment Generator
+    # através de config_sha256(), usando somente
+    # os CONFIG_FIELDS históricos.
+    #
+    # Não utilizar management_config_sha256()
+    # aqui: esse helper possui outro payload
+    # canônico e representa outro contrato.
+    #
     calculated_trade1_hash = (
-        management_config_sha256(
-            trade1_config
+        experiment_config_sha256(
+            historical_trade1_payload
         )
     )
 

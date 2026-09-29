@@ -6,6 +6,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -80,6 +81,101 @@ TRADE1_DATABASE_SCHEMA = pa.schema(
 def _extract_session_date(
     parquet_path: Path,
 ) -> date:
+    """
+    Resolve the session date from the normalized
+    dataset itself.
+
+    Stage 22 physical filenames may contain more
+    than one YYYYMMDD token because lineage keeps
+    both source ZIP and source CSV identity.
+
+    Therefore filename parsing is no longer a
+    reliable primary source of session identity.
+
+    Compatibility contract:
+    - normalized Parquets with a `date` column:
+      the file must contain exactly one session;
+    - historical artifacts without a usable
+      `date` column preserve the legacy filename
+      fallback.
+    """
+    parquet_path = Path(
+        parquet_path
+    )
+
+    try:
+        lf = pl.scan_parquet(
+            parquet_path
+        )
+
+        schema = (
+            lf.collect_schema()
+        )
+
+        if (
+            "date"
+            in schema.names()
+        ):
+            dates = (
+                lf.select(
+                    pl.col(
+                        "date"
+                    )
+                    .drop_nulls()
+                    .cast(
+                        pl.String
+                    )
+                    .unique()
+                    .sort()
+                )
+                .collect(
+                    engine="streaming"
+                )[
+                    "date"
+                ]
+                .to_list()
+            )
+
+            dates = [
+                str(
+                    value
+                ).strip()
+                for value in dates
+                if value is not None
+                and str(
+                    value
+                ).strip()
+            ]
+
+            if len(
+                dates
+            ) == 1:
+                return datetime.strptime(
+                    dates[
+                        0
+                    ],
+                    "%Y-%m-%d",
+                ).date()
+
+            if len(
+                dates
+            ) > 1:
+                raise ValueError(
+                    "Normalized parquet contains "
+                    "multiple session dates: "
+                    f"{parquet_path.name}: "
+                    f"{dates}"
+                )
+
+    except ValueError:
+        raise
+
+    except Exception:
+        #
+        # Compatibility fallback below.
+        #
+        pass
+
     match = re.search(
         r"(\d{8})",
         parquet_path.name,
@@ -87,7 +183,7 @@ def _extract_session_date(
 
     if match is None:
         raise ValueError(
-            "Unable to extract session date from filename: "
+            "Unable to resolve session date: "
             f"{parquet_path.name}"
         )
 

@@ -32,12 +32,25 @@ from operar_range.distributed_executor import (
     read_attempts,
     serialize_all_batches,
 )
+from operar_range.dataset_store import (
+    dataset_paths,
+)
 from operar_range.experiment_generator import (
     generate_configurations,
     generate_experiment_database,
 )
 from operar_range.ingest import (
     import_tick_zip,
+)
+from operar_range.dataset_discovery import (
+    discover_dataset,
+)
+from operar_range.dataset_pipeline import (
+    materialize_dataset,
+    prepare_dataset_for_research,
+)
+from operar_range.dataset_store import (
+    dataset_paths,
 )
 from operar_range.ranking_engine import (
     RankingRequest,
@@ -552,6 +565,37 @@ def create_research(
             "TRADE_1 only."
         )
 
+    dataset_context = (
+        _resolve_dataset_context(
+            payload,
+            allow_legacy=False,
+        )
+    )
+
+    payload[
+        "dataset_id"
+    ] = dataset_context[
+        "dataset_id"
+    ]
+
+    payload[
+        "dataset_version"
+    ] = dataset_context[
+        "dataset_version"
+    ]
+
+    payload[
+        "market"
+    ] = dataset_context[
+        "market"
+    ]
+
+    payload[
+        "asset"
+    ] = dataset_context[
+        "asset"
+    ]
+
     definition_hash = (
         research_definition_sha256(
             payload
@@ -624,6 +668,31 @@ def create_research(
         "error_message": None,
         "research_definition_sha256": (
             definition_hash
+        ),
+        "dataset_id": (
+            dataset_context[
+                "dataset_id"
+            ]
+        ),
+        "dataset_version": (
+            dataset_context[
+                "dataset_version"
+            ]
+        ),
+        "market": (
+            dataset_context[
+                "market"
+            ]
+        ),
+        "asset": (
+            dataset_context[
+                "asset"
+            ]
+        ),
+        "dataset_manifest_path": str(
+            dataset_context[
+                "manifest_path"
+            ]
         ),
         "experiment_manifest_sha256": None,
         "distributed_results_sha256": None,
@@ -1255,11 +1324,419 @@ def process_datasets(
     }
 
 
-def available_dataset_period() -> dict[
-    str,
-    Any
-]:
-    if not TRADE1_DATABASE_PATH.exists():
+def _resolve_dataset_context(
+    definition: dict[str, Any],
+    *,
+    allow_legacy: bool,
+) -> dict[str, Any]:
+    dataset_id_value = str(
+        definition.get(
+            "dataset_id"
+        )
+        or ""
+    ).strip()
+
+    if not dataset_id_value:
+        if allow_legacy:
+            return {
+                "mode": "LEGACY_GLOBAL",
+                "dataset_id": None,
+                "dataset_version": None,
+                "market": None,
+                "asset": None,
+                "manifest": None,
+                "manifest_path": None,
+                "normalized": (
+                    NORMALIZED_ROOT
+                ),
+                "trade1_database": (
+                    TRADE1_DATABASE_PATH
+                ),
+                "trajectory_manifest": (
+                    TRAJECTORY_MANIFEST_PATH
+                ),
+                "trajectories": (
+                    DATA_ROOT
+                    / "trajectories"
+                ),
+            }
+
+        raise RuntimeError(
+            "DATASET_RESOLUTION_ERROR: "
+            "dataset_id is required for "
+            "new research."
+        )
+
+    paths = dataset_paths(
+        data_root=DATA_ROOT,
+        dataset_id_value=(
+            dataset_id_value
+        ),
+    )
+
+    manifest_path = paths[
+        "manifest"
+    ]
+
+    if not manifest_path.exists():
+        raise RuntimeError(
+            "DATASET_RESOLUTION_ERROR: "
+            f"dataset manifest not found: "
+            f"{dataset_id_value}"
+        )
+
+    manifest = read_json(
+        manifest_path
+    )
+
+    manifest_dataset_id = str(
+        manifest.get(
+            "dataset_id"
+        )
+        or ""
+    ).strip()
+
+    if (
+        manifest_dataset_id
+        != dataset_id_value
+    ):
+        raise RuntimeError(
+            "DATASET_RESOLUTION_ERROR: "
+            "dataset manifest identity "
+            "mismatch."
+        )
+
+    if not bool(
+        manifest.get(
+            "research_ready"
+        )
+    ):
+        raise RuntimeError(
+            "DATASET_RESOLUTION_ERROR: "
+            f"dataset {dataset_id_value} "
+            "is not research ready."
+        )
+
+    market = str(
+        manifest.get(
+            "market"
+        )
+        or ""
+    ).strip()
+
+    asset = str(
+        manifest.get(
+            "asset"
+        )
+        or ""
+    ).strip()
+
+    if not market:
+        raise RuntimeError(
+            "DATASET_RESOLUTION_ERROR: "
+            "dataset market is missing."
+        )
+
+    if not asset:
+        raise RuntimeError(
+            "DATASET_RESOLUTION_ERROR: "
+            "dataset asset is missing."
+        )
+
+    expected_market = str(
+        definition.get(
+            "market"
+        )
+        or ""
+    ).strip()
+
+    if (
+        expected_market
+        and expected_market
+        != market
+    ):
+        raise RuntimeError(
+            "DATASET_RESOLUTION_ERROR: "
+            "research market does not match "
+            "dataset market."
+        )
+
+    expected_asset = str(
+        definition.get(
+            "asset"
+        )
+        or ""
+    ).strip()
+
+    if (
+        expected_asset
+        and expected_asset
+        != asset
+    ):
+        raise RuntimeError(
+            "DATASET_RESOLUTION_ERROR: "
+            "research asset does not match "
+            "dataset asset."
+        )
+
+    expected_version = (
+        definition.get(
+            "dataset_version"
+        )
+    )
+
+    manifest_version = (
+        manifest.get(
+            "dataset_version"
+        )
+    )
+
+    if (
+        expected_version is not None
+        and manifest_version is not None
+        and str(
+            expected_version
+        )
+        != str(
+            manifest_version
+        )
+    ):
+        raise RuntimeError(
+            "DATASET_RESOLUTION_ERROR: "
+            "dataset version mismatch."
+        )
+
+    required_paths = {
+        "trade1_database": (
+            paths[
+                "trade1_database"
+            ]
+        ),
+        "trajectory_manifest": (
+            paths[
+                "trajectory_manifest"
+            ]
+        ),
+        "normalized": (
+            paths[
+                "normalized"
+            ]
+        ),
+    }
+
+    for name, required_path in (
+        required_paths.items()
+    ):
+        if not required_path.exists():
+            raise RuntimeError(
+                "DATASET_RESOLUTION_ERROR: "
+                f"required dataset artifact "
+                f"is missing: {name}"
+            )
+
+    return {
+        "mode": "DATASET",
+        "dataset_id": (
+            dataset_id_value
+        ),
+        "dataset_version": (
+            manifest_version
+        ),
+        "market": market,
+        "asset": asset,
+        "manifest": manifest,
+        "manifest_path": (
+            manifest_path
+        ),
+        "normalized": (
+            paths[
+                "normalized"
+            ]
+        ),
+        "trade1_database": (
+            paths[
+                "trade1_database"
+            ]
+        ),
+        "trajectory_manifest": (
+            paths[
+                "trajectory_manifest"
+            ]
+        ),
+        "trajectories": (
+            paths[
+                "trajectories"
+            ]
+        ),
+    }
+
+
+def _public_dataset_context(
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Contrato público Stage 22 para resolução
+    de Dataset.
+
+    Mantém os nomes internos históricos e
+    adiciona aliases explícitos utilizados
+    pelas novas pesquisas.
+    """
+    public = dict(
+        context
+    )
+
+    if (
+        "normalized_dir"
+        not in public
+    ):
+        public[
+            "normalized_dir"
+        ] = public.get(
+            "normalized"
+        )
+
+    if (
+        "trade1_database_path"
+        not in public
+    ):
+        public[
+            "trade1_database_path"
+        ] = public.get(
+            "trade1_database"
+        )
+
+    if (
+        "trajectory_manifest_path"
+        not in public
+    ):
+        public[
+            "trajectory_manifest_path"
+        ] = public.get(
+            "trajectory_manifest"
+        )
+
+    if (
+        "trajectories_dir"
+        not in public
+    ):
+        public[
+            "trajectories_dir"
+        ] = public.get(
+            "trajectories"
+        )
+
+    if (
+        "dataset_manifest_path"
+        not in public
+    ):
+        public[
+            "dataset_manifest_path"
+        ] = public.get(
+            "manifest_path"
+        )
+
+    return public
+
+
+def resolve_dataset_context(
+    dataset_id_value: str,
+) -> dict[str, Any]:
+    """
+    Resolve um Dataset Stage 22 explicitamente.
+
+    Não existe fallback para artifacts globais.
+    """
+    dataset_id_value = str(
+        dataset_id_value
+        or ""
+    ).strip()
+
+    if not dataset_id_value:
+        raise RuntimeError(
+            "DATASET_RESOLUTION_ERROR: "
+            "dataset_id is required."
+        )
+
+    context = (
+        _resolve_dataset_context(
+            {
+                "dataset_id": (
+                    dataset_id_value
+                )
+            },
+            allow_legacy=False,
+        )
+    )
+
+    return _public_dataset_context(
+        context
+    )
+
+
+def resolve_research_dataset_context(
+    definition: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Resolve o universo de dados de uma pesquisa.
+
+    Pesquisas com Dataset ID utilizam isolamento
+    Stage 22.
+
+    Definições históricas sem Dataset ID permanecem
+    explicitamente no contrato LEGACY_GLOBAL.
+    """
+    if not isinstance(
+        definition,
+        dict,
+    ):
+        raise RuntimeError(
+            "DATASET_RESOLUTION_ERROR: "
+            "research definition must "
+            "be a dictionary."
+        )
+
+    context = (
+        _resolve_dataset_context(
+            definition,
+            allow_legacy=True,
+        )
+    )
+
+    return _public_dataset_context(
+        context
+    )
+
+
+def available_dataset_period(
+    *,
+    dataset_id_value: (
+        str
+        | None
+    ) = None,
+) -> dict[str, Any]:
+    if dataset_id_value:
+        context = (
+            _resolve_dataset_context(
+                {
+                    "dataset_id": (
+                        dataset_id_value
+                    )
+                },
+                allow_legacy=False,
+            )
+        )
+
+        database_path = context[
+            "trade1_database"
+        ]
+
+    else:
+        database_path = (
+            TRADE1_DATABASE_PATH
+        )
+
+    if not database_path.exists():
         return {
             "available": False,
             "period_start": None,
@@ -1268,7 +1745,7 @@ def available_dataset_period() -> dict[
         }
 
     rows = read_parquet_rows(
-        TRADE1_DATABASE_PATH
+        database_path
     )
 
     dates = sorted(
@@ -1313,6 +1790,10 @@ def _sessions_for_period(
     *,
     period_start: str,
     period_end: str,
+    dataset_id_value: (
+        str
+        | None
+    ) = None,
 ) -> list[dict[str, Any]]:
     if (
         period_start
@@ -1323,8 +1804,29 @@ def _sessions_for_period(
             "be after period_end."
         )
 
+    if dataset_id_value:
+        context = (
+            _resolve_dataset_context(
+                {
+                    "dataset_id": (
+                        dataset_id_value
+                    )
+                },
+                allow_legacy=False,
+            )
+        )
+
+        manifest_path = context[
+            "trajectory_manifest"
+        ]
+
+    else:
+        manifest_path = (
+            TRAJECTORY_MANIFEST_PATH
+        )
+
     rows = read_parquet_rows(
-        TRAJECTORY_MANIFEST_PATH
+        manifest_path
     )
 
     filtered = [
@@ -1357,9 +1859,17 @@ def validate_research_period(
     *,
     period_start: str,
     period_end: str,
+    dataset_id_value: (
+        str
+        | None
+    ) = None,
 ) -> dict[str, Any]:
     available = (
-        available_dataset_period()
+        available_dataset_period(
+            dataset_id_value=(
+                dataset_id_value
+            ),
+        )
     )
 
     errors = []
@@ -1414,6 +1924,9 @@ def validate_research_period(
                 period_end=(
                     period_end
                 ),
+                dataset_id_value=(
+                    dataset_id_value
+                ),
             )
         )
 
@@ -1443,7 +1956,11 @@ def validate_research_period(
                 "period_end"
             ]
         ),
+        "dataset_id": (
+            dataset_id_value
+        ),
     }
+
 
 
 def estimate_research(
@@ -1461,6 +1978,13 @@ def estimate_research(
         ]
     )
 
+    dataset_context = (
+        _resolve_dataset_context(
+            definition,
+            allow_legacy=False,
+        )
+    )
+
     period_validation = (
         validate_research_period(
             period_start=(
@@ -1468,6 +1992,11 @@ def estimate_research(
             ),
             period_end=(
                 period_end
+            ),
+            dataset_id_value=(
+                dataset_context[
+                    "dataset_id"
+                ]
             ),
         )
     )
@@ -1650,10 +2179,34 @@ def _materialize_period_manifest(
     research_id: str,
     period_start: str,
     period_end: str,
+    dataset_id_value: (
+        str | None
+    ) = None,
 ) -> dict[str, Any]:
     paths = research_paths(
         research_id
     )
+
+    if dataset_id_value:
+        dataset_context = (
+            resolve_dataset_context(
+                dataset_id_value
+            )
+        )
+
+        source_manifest_path = (
+            dataset_context[
+                "trajectory_manifest_path"
+            ]
+        )
+
+    else:
+        #
+        # Research legacy.
+        #
+        source_manifest_path = (
+            TRAJECTORY_MANIFEST_PATH
+        )
 
     rows = _sessions_for_period(
         period_start=(
@@ -1661,6 +2214,9 @@ def _materialize_period_manifest(
         ),
         period_end=(
             period_end
+        ),
+        dataset_id_value=(
+            dataset_id_value
         ),
     )
 
@@ -1672,7 +2228,7 @@ def _materialize_period_manifest(
 
     _write_rows_like(
         source_path=(
-            TRAJECTORY_MANIFEST_PATH
+            source_manifest_path
         ),
         rows=rows,
         output_path=(
@@ -1698,12 +2254,19 @@ def _materialize_period_manifest(
                 ]
             )
         ),
+        "dataset_id": (
+            dataset_id_value
+        ),
+        "source_manifest_path": str(
+            source_manifest_path
+        ),
     }
 
 
 def _execute_distributed(
     *,
     research_id: str,
+    normalized_dir: str | Path,
     progress_callback: (
         ProgressCallback
         | None
@@ -1851,7 +2414,15 @@ def _execute_distributed(
                 ]
             ),
             normalized_dir=(
-                "data/normalized"
+                str(
+                    Path(
+                        normalized_dir
+                    )
+                    .resolve()
+                    .relative_to(
+                        PROJECT_ROOT
+                    )
+                )
             ),
         )
 
@@ -1983,6 +2554,21 @@ def execute_research(
         )
     )
 
+    #
+    # Existing research definitions without
+    # Dataset ID preserve their historical
+    # global-artifact contract.
+    #
+    # create_research() no longer permits
+    # creation of such research.
+    #
+    dataset_context = (
+        _resolve_dataset_context(
+            definition,
+            allow_legacy=True,
+        )
+    )
+
     if (
         manifest[
             "status"
@@ -2059,6 +2645,11 @@ def execute_research(
                 period_end=(
                     period_end
                 ),
+                dataset_id_value=(
+                    dataset_context.get(
+                        "dataset_id"
+                    )
+                ),
             )
         )
 
@@ -2084,6 +2675,11 @@ def execute_research(
                 ),
                 period_end=(
                     period_end
+                ),
+                dataset_id_value=(
+                    dataset_context.get(
+                        "dataset_id"
+                    )
                 ),
             )
         )
@@ -2342,6 +2938,11 @@ def execute_research(
             _execute_distributed(
                 research_id=(
                     research_id
+                ),
+                normalized_dir=(
+                    dataset_context[
+                        "normalized"
+                    ]
                 ),
                 progress_callback=(
                     progress_callback
@@ -3309,3 +3910,935 @@ def list_available_datasets() -> list[dict[str, Any]]:
         )
 
     return datasets
+
+
+#
+# ============================================================
+# STAGE 22 — DATASET MANAGER / ISOLATED DATASET CATALOG
+# ============================================================
+#
+
+def save_dataset_upload(
+    *,
+    filename: str,
+    content: bytes,
+) -> dict[str, Any]:
+    """
+    Persiste um upload recebido pela interface no inbox.
+
+    Não sobrescreve silenciosamente um arquivo existente
+    com conteúdo diferente.
+    """
+    filename = str(
+        filename
+        or ""
+    ).strip()
+
+    if not filename:
+        raise ValueError(
+            "Upload filename is required."
+        )
+
+    safe_name = Path(
+        filename
+    ).name
+
+    if (
+        safe_name != filename
+        or safe_name in {
+            ".",
+            "..",
+        }
+    ):
+        raise ValueError(
+            "Invalid upload filename."
+        )
+
+    if (
+        Path(
+            safe_name
+        ).suffix.lower()
+        != ".zip"
+    ):
+        raise ValueError(
+            "Only ZIP dataset files are supported."
+        )
+
+    if not content:
+        raise ValueError(
+            "Uploaded dataset file is empty."
+        )
+
+    INBOX_ROOT.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    target = (
+        INBOX_ROOT
+        / safe_name
+    )
+
+    incoming_hash = hashlib.sha256(
+        content
+    ).hexdigest()
+
+    if target.exists():
+        existing_hash = (
+            sha256_file(
+                target
+            )
+        )
+
+        if (
+            existing_hash
+            != incoming_hash
+        ):
+            raise FileExistsError(
+                (
+                    "Inbox already contains "
+                    "a file with this name "
+                    "and different content: "
+                    f"{safe_name}"
+                )
+            )
+
+        return {
+            "name": safe_name,
+            "path": str(
+                target
+            ),
+            "sha256": (
+                existing_hash
+            ),
+            "status": (
+                "ALREADY_PRESENT"
+            ),
+        }
+
+    target.write_bytes(
+        content
+    )
+
+    actual_hash = (
+        sha256_file(
+            target
+        )
+    )
+
+    if (
+        actual_hash
+        != incoming_hash
+    ):
+        try:
+            target.unlink()
+        except Exception:
+            pass
+
+        raise RuntimeError(
+            "Uploaded file hash mismatch."
+        )
+
+    return {
+        "name": safe_name,
+        "path": str(
+            target
+        ),
+        "sha256": (
+            actual_hash
+        ),
+        "status": "SAVED",
+    }
+
+
+def process_dataset_import_stage22(
+    *,
+    market: str,
+    asset: str,
+    filenames: list[str],
+    provider: str | None = None,
+    progress_callback: (
+        ProgressCallback
+        | None
+    ) = None,
+) -> dict[str, Any]:
+    """
+    Fluxo oficial Stage 22.
+
+    Descobre uma coleção de arquivos como UM Dataset ID,
+    materializa o universo isoladamente e prepara seus
+    artifacts quantitativos sem tocar nos globals legacy.
+    """
+    market = str(
+        market
+        or ""
+    ).strip()
+
+    asset = str(
+        asset
+        or ""
+    ).strip()
+
+    provider_value = (
+        str(
+            provider
+        ).strip()
+        if provider is not None
+        and str(
+            provider
+        ).strip()
+        else None
+    )
+
+    if not market:
+        raise ValueError(
+            "market is required."
+        )
+
+    if not asset:
+        raise ValueError(
+            "asset is required."
+        )
+
+    validation = (
+        validate_inbox_selection(
+            filenames
+        )
+    )
+
+    if not validation[
+        "valid"
+    ]:
+        raise RuntimeError(
+            "Dataset validation failed: "
+            + canonical_json(
+                validation[
+                    "errors"
+                ]
+            )
+        )
+
+    selected_paths = [
+        Path(
+            row[
+                "path"
+            ]
+        )
+        for row
+        in validation[
+            "files"
+        ]
+    ]
+
+    _progress(
+        progress_callback,
+        "DISCOVERY",
+        0.05,
+        status="RUNNING",
+    )
+
+    discovery = discover_dataset(
+        market=market,
+        asset=asset,
+        provider=(
+            provider_value
+        ),
+        selected_files=(
+            selected_paths
+        ),
+    )
+
+    _progress(
+        progress_callback,
+        "DISCOVERY",
+        0.20,
+        status="COMPLETED",
+        dataset_id=(
+            discovery[
+                "dataset_id"
+            ]
+        ),
+    )
+
+    _progress(
+        progress_callback,
+        "NORMALIZATION",
+        0.25,
+        status="RUNNING",
+    )
+
+    materialized = (
+        materialize_dataset(
+            discovery=discovery,
+            selected_files=(
+                selected_paths
+            ),
+            data_root=(
+                DATA_ROOT
+            ),
+        )
+    )
+
+    _progress(
+        progress_callback,
+        "NORMALIZATION",
+        0.55,
+        status="COMPLETED",
+        dataset_id=(
+            discovery[
+                "dataset_id"
+            ]
+        ),
+    )
+
+    _progress(
+        progress_callback,
+        "SCANNER",
+        0.60,
+        status="RUNNING",
+    )
+
+    prepared = (
+        prepare_dataset_for_research(
+            dataset_id_value=(
+                discovery[
+                    "dataset_id"
+                ]
+            ),
+            data_root=(
+                DATA_ROOT
+            ),
+        )
+    )
+
+    _progress(
+        progress_callback,
+        "TRAJECTORY_CACHE",
+        0.95,
+        status="COMPLETED",
+        dataset_id=(
+            discovery[
+                "dataset_id"
+            ]
+        ),
+    )
+
+    _progress(
+        progress_callback,
+        "DATASET_REGISTRY",
+        1.0,
+        status="READY",
+        dataset_id=(
+            discovery[
+                "dataset_id"
+            ]
+        ),
+    )
+
+    return {
+        "dataset_id": (
+            discovery[
+                "dataset_id"
+            ]
+        ),
+        "market": market,
+        "asset": asset,
+        "provider": (
+            provider_value
+        ),
+        "discovery": (
+            discovery
+        ),
+        "materialization": (
+            materialized
+        ),
+        "preparation": (
+            prepared
+        ),
+        "status": "READY",
+    }
+
+
+def _stage22_dataset_catalog() -> list[
+    dict[str, Any]
+]:
+    datasets_root = (
+        DATA_ROOT
+        / "datasets"
+    )
+
+    if not datasets_root.exists():
+        return []
+
+    rows = []
+
+    for dataset_dir in sorted(
+        datasets_root.iterdir()
+    ):
+        if not dataset_dir.is_dir():
+            continue
+
+        manifest_path = (
+            dataset_dir
+            / "dataset_manifest.json"
+        )
+
+        if not manifest_path.exists():
+            rows.append(
+                {
+                    "dataset_id": (
+                        dataset_dir.name
+                    ),
+                    "dataset_key": (
+                        dataset_dir.name
+                    ),
+                    "dataset_version": None,
+                    "market": None,
+                    "asset": None,
+                    "ticker": None,
+                    "provider": None,
+                    "source": None,
+                    "source_sha256": None,
+                    "period_start": None,
+                    "period_end": None,
+                    "sessions_total": 0,
+                    "records_total": 0,
+                    "quality_status": (
+                        "PROCESSING"
+                    ),
+                    "prepared_for_research": (
+                        False
+                    ),
+                    "research_ready": False,
+                    "imported_at": None,
+                    "ingest_version": None,
+                    "normalization_version": None,
+                    "scanner_motor_version": None,
+                    "catalog_origin": (
+                        "STAGE22_ISOLATED"
+                    ),
+                }
+            )
+
+            continue
+
+        try:
+            manifest = (
+                read_json(
+                    manifest_path
+                )
+            )
+        except Exception:
+            rows.append(
+                {
+                    "dataset_id": (
+                        dataset_dir.name
+                    ),
+                    "dataset_key": (
+                        dataset_dir.name
+                    ),
+                    "dataset_version": None,
+                    "market": None,
+                    "asset": None,
+                    "ticker": None,
+                    "provider": None,
+                    "source": None,
+                    "source_sha256": None,
+                    "period_start": None,
+                    "period_end": None,
+                    "sessions_total": 0,
+                    "records_total": 0,
+                    "quality_status": "ERROR",
+                    "prepared_for_research": (
+                        False
+                    ),
+                    "research_ready": False,
+                    "imported_at": None,
+                    "ingest_version": None,
+                    "normalization_version": None,
+                    "scanner_motor_version": None,
+                    "catalog_origin": (
+                        "STAGE22_ISOLATED"
+                    ),
+                }
+            )
+
+            continue
+
+        dataset_id_value = (
+            manifest.get(
+                "dataset_id"
+            )
+        )
+
+        if (
+            not dataset_id_value
+            or str(
+                dataset_id_value
+            )
+            != dataset_dir.name
+        ):
+            quality_status = (
+                "ERROR"
+            )
+            research_ready = False
+        else:
+            quality_status = (
+                manifest.get(
+                    "quality_status"
+                )
+                or "ERROR"
+            )
+
+            research_ready = bool(
+                manifest.get(
+                    "research_ready"
+                )
+            )
+
+        source_files = (
+            manifest.get(
+                "source_files"
+            )
+            or []
+        )
+
+        source_hashes = (
+            manifest.get(
+                "source_sha256"
+            )
+            or []
+        )
+
+        scanner_motor_version = None
+
+        derived = (
+            manifest.get(
+                "derived_artifacts"
+            )
+            or {}
+        )
+
+        scanner_summary_info = (
+            derived.get(
+                "scanner_summary"
+            )
+            or {}
+        )
+
+        scanner_summary_path = (
+            scanner_summary_info.get(
+                "path"
+            )
+        )
+
+        if scanner_summary_path:
+            try:
+                scanner_summary = (
+                    read_json(
+                        scanner_summary_path
+                    )
+                )
+
+                scanner_motor_version = (
+                    scanner_summary.get(
+                        "motor_version"
+                    )
+                )
+
+            except Exception:
+                scanner_motor_version = None
+
+        rows.append(
+            {
+                "dataset_id": (
+                    dataset_id_value
+                    or dataset_dir.name
+                ),
+                "dataset_key": (
+                    dataset_id_value
+                    or dataset_dir.name
+                ),
+                "dataset_version": (
+                    manifest.get(
+                        "dataset_version"
+                    )
+                ),
+                "market": (
+                    manifest.get(
+                        "market"
+                    )
+                ),
+                "asset": (
+                    manifest.get(
+                        "asset"
+                    )
+                ),
+                #
+                # ticker permanece como alias
+                # de compatibilidade visual.
+                #
+                "ticker": (
+                    manifest.get(
+                        "asset"
+                    )
+                ),
+                "provider": (
+                    manifest.get(
+                        "provider"
+                    )
+                ),
+                "source": (
+                    ", ".join(
+                        str(
+                            value
+                        )
+                        for value
+                        in source_files
+                    )
+                    if source_files
+                    else None
+                ),
+                "source_sha256": (
+                    source_hashes
+                ),
+                "period_start": (
+                    str(
+                        manifest.get(
+                            "period_start"
+                        )
+                    )[
+                        :10
+                    ]
+                    if manifest.get(
+                        "period_start"
+                    )
+                    else None
+                ),
+                "period_end": (
+                    str(
+                        manifest.get(
+                            "period_end"
+                        )
+                    )[
+                        :10
+                    ]
+                    if manifest.get(
+                        "period_end"
+                    )
+                    else None
+                ),
+                "sessions_total": int(
+                    manifest.get(
+                        "sessions_total"
+                    )
+                    or 0
+                ),
+                "records_total": int(
+                    manifest.get(
+                        "records_total"
+                    )
+                    or 0
+                ),
+                "quality_status": (
+                    quality_status
+                ),
+                "prepared_for_research": bool(
+                    research_ready
+                    and quality_status
+                    == "READY"
+                ),
+                "research_ready": (
+                    research_ready
+                ),
+                "imported_at": (
+                    manifest.get(
+                        "imported_at"
+                    )
+                ),
+                "ingest_version": (
+                    manifest.get(
+                        "ingest_version"
+                    )
+                ),
+                "normalization_version": (
+                    manifest.get(
+                        "normalization_version"
+                    )
+                ),
+                "scanner_motor_version": (
+                    scanner_motor_version
+                ),
+                "files_total": int(
+                    manifest.get(
+                        "files_total"
+                    )
+                    or 0
+                ),
+                "components_total": int(
+                    manifest.get(
+                        "components_total"
+                    )
+                    or 0
+                ),
+                "manifest_path": str(
+                    manifest_path
+                ),
+                "catalog_origin": (
+                    "STAGE22_ISOLATED"
+                ),
+            }
+        )
+
+    return rows
+
+
+#
+# Mantemos uma referência explícita ao catálogo histórico.
+#
+_list_available_datasets_legacy = (
+    list_available_datasets
+)
+
+
+def list_available_datasets() -> list[
+    dict[str, Any]
+]:
+    """
+    Catálogo unificado.
+
+    Stage 22 isolated datasets são entidades oficiais
+    para novas pesquisas.
+
+    Datasets legacy continuam visíveis sem receber
+    metadata retroativa inventada.
+    """
+    stage22_rows = (
+        _stage22_dataset_catalog()
+    )
+
+    legacy_rows = (
+        _list_available_datasets_legacy()
+    )
+
+    stage22_keys = {
+        str(
+            row.get(
+                "dataset_key"
+            )
+        )
+        for row
+        in stage22_rows
+        if row.get(
+            "dataset_key"
+        )
+    }
+
+    preserved_legacy = []
+
+    for row in legacy_rows:
+        key = str(
+            row.get(
+                "dataset_key"
+            )
+        )
+
+        if (
+            key
+            and key in stage22_keys
+        ):
+            continue
+
+        copied = dict(
+            row
+        )
+
+        copied.setdefault(
+            "market",
+            None,
+        )
+
+        copied.setdefault(
+            "asset",
+            copied.get(
+                "ticker"
+            ),
+        )
+
+        copied[
+            "catalog_origin"
+        ] = "LEGACY_GLOBAL"
+
+        preserved_legacy.append(
+            copied
+        )
+
+    return sorted(
+        (
+            stage22_rows
+            + preserved_legacy
+        ),
+        key=lambda row: (
+            str(
+                row.get(
+                    "market"
+                )
+                or ""
+            ),
+            str(
+                row.get(
+                    "asset"
+                )
+                or row.get(
+                    "ticker"
+                )
+                or ""
+            ),
+            str(
+                row.get(
+                    "period_start"
+                )
+                or ""
+            ),
+            str(
+                row.get(
+                    "dataset_id"
+                )
+                or row.get(
+                    "dataset_key"
+                )
+                or ""
+            ),
+        ),
+    )
+
+
+def create_research_stage22(
+    definition: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Entrada oficial para novas pesquisas a partir da Etapa 22.
+
+    Dataset ID é obrigatório e é validado antes de criar
+    qualquer Research ID.
+    """
+    payload = dict(
+        definition
+    )
+
+    dataset_id_value = str(
+        payload.get(
+            "dataset_id"
+        )
+        or ""
+    ).strip()
+
+    if not dataset_id_value:
+        raise RuntimeError(
+            "DATASET_RESOLUTION_ERROR: "
+            "new research requires dataset_id."
+        )
+
+    context = resolve_dataset_context(
+        dataset_id_value
+    )
+
+    #
+    # O Research passa a congelar explicitamente
+    # a identidade do universo pesquisado.
+    #
+    payload[
+        "dataset_id"
+    ] = context[
+        "dataset_id"
+    ]
+
+    payload[
+        "dataset_version"
+    ] = context[
+        "dataset_version"
+    ]
+
+    payload[
+        "market"
+    ] = context[
+        "market"
+    ]
+
+    payload[
+        "asset"
+    ] = context[
+        "asset"
+    ]
+
+    manifest = context[
+        "manifest"
+    ]
+
+    payload[
+        "dataset_manifest_sha256"
+    ] = (
+        sha256_file(
+            context[
+                "manifest_path"
+            ]
+        )
+    )
+
+    payload[
+        "dataset_source_sha256"
+    ] = (
+        manifest.get(
+            "source_sha256"
+        )
+    )
+
+    payload[
+        "dataset_key"
+    ] = context[
+        "dataset_id"
+    ]
+
+    result = create_research(
+        payload
+    )
+
+    research_id = (
+        result[
+            "research_id"
+        ]
+    )
+
+    update_run_manifest(
+        research_id,
+        dataset_id=(
+            context[
+                "dataset_id"
+            ]
+        ),
+        dataset_version=(
+            context[
+                "dataset_version"
+            ]
+        ),
+        dataset_market=(
+            context[
+                "market"
+            ]
+        ),
+        dataset_asset=(
+            context[
+                "asset"
+            ]
+        ),
+        dataset_manifest_sha256=(
+            payload[
+                "dataset_manifest_sha256"
+            ]
+        ),
+        dataset_resolution_mode=(
+            "STAGE22_ISOLATED"
+        ),
+    )
+
+    return result

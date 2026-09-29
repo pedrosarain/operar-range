@@ -850,6 +850,88 @@ def _existing_hash_id_map(
     return mapping
 
 
+def _existing_registry_identity_by_hash(
+    registry_path: (
+        str | Path | None
+    ),
+) -> dict[
+    str,
+    dict[str, Any],
+]:
+    """
+    Retorna a identidade histórica canônica
+    dos experimentos já registrados,
+    indexada por config_sha256.
+
+    O Registry é a fonte de verdade para os
+    campos imutáveis de um experimento que
+    está sendo reutilizado em uma nova
+    pesquisa.
+    """
+    if registry_path is None:
+        return {}
+
+    path = Path(
+        registry_path
+    )
+
+    if not path.exists():
+        return {}
+
+    mapping: dict[
+        str,
+        dict[str, Any],
+    ] = {}
+
+    for row in _read_existing_rows(
+        path
+    ):
+        config_hash = row.get(
+            "config_sha256"
+        )
+
+        experiment_id = row.get(
+            "experiment_id"
+        )
+
+        if (
+            not config_hash
+            or not experiment_id
+        ):
+            continue
+
+        config_hash = str(
+            config_hash
+        )
+
+        existing = mapping.get(
+            config_hash
+        )
+
+        if (
+            existing is not None
+            and existing.get(
+                "experiment_id"
+            )
+            != experiment_id
+        ):
+            raise RuntimeError(
+                "Same config_sha256 "
+                "is associated with "
+                "different experiment IDs "
+                "in Registry: "
+                f"{config_hash}"
+            )
+
+        mapping[
+            config_hash
+        ] = dict(
+            row
+        )
+
+    return mapping
+
+
 def _next_available_id(
     *,
     reserved: set[str],
@@ -1119,6 +1201,23 @@ def build_experiment_rows(
         )
     )
 
+    #
+    # Um config_sha256 já registrado representa
+    # um experimento histórico já existente.
+    #
+    # Reutilizar seu experiment_id exige também
+    # reutilizar sua identidade imutável.
+    #
+    # A nova Research possui identidade e
+    # created_at próprios, mas isso NÃO cria
+    # novamente o mesmo experimento.
+    #
+    historical_identity_by_hash = (
+        _existing_registry_identity_by_hash(
+            registry_path
+        )
+    )
+
     rows: list[
         dict[str, Any]
     ] = []
@@ -1134,31 +1233,152 @@ def build_experiment_rows(
             f"{experiment_id}"
         )
 
+        historical_identity = (
+            historical_identity_by_hash.get(
+                config_hash
+            )
+        )
+
+        if historical_identity is not None:
+            historical_experiment_id = str(
+                historical_identity[
+                    "experiment_id"
+                ]
+            )
+
+            if (
+                historical_experiment_id
+                != experiment_id
+            ):
+                raise RuntimeError(
+                    "Historical experiment "
+                    "identity mismatch for "
+                    f"{config_hash}: "
+                    f"{historical_experiment_id} "
+                    f"!= {experiment_id}"
+                )
+
+            row_family = (
+                historical_identity.get(
+                    "family"
+                )
+                if historical_identity.get(
+                    "family"
+                )
+                is not None
+                else family
+            )
+
+            row_generation = (
+                historical_identity.get(
+                    "generation"
+                )
+                if historical_identity.get(
+                    "generation"
+                )
+                is not None
+                else generation
+            )
+
+            row_experiment_name = (
+                historical_identity.get(
+                    "experiment_name"
+                )
+                if historical_identity.get(
+                    "experiment_name"
+                )
+                is not None
+                else experiment_name
+            )
+
+            row_created_at = (
+                historical_identity.get(
+                    "created_at"
+                )
+                if historical_identity.get(
+                    "created_at"
+                )
+                is not None
+                else created_at
+            )
+
+            row_engine_version = (
+                historical_identity.get(
+                    "engine_version"
+                )
+                if historical_identity.get(
+                    "engine_version"
+                )
+                is not None
+                else engine_version
+            )
+
+            row_rules_version = (
+                historical_identity.get(
+                    "rules_version"
+                )
+                if historical_identity.get(
+                    "rules_version"
+                )
+                is not None
+                else rules_version
+            )
+
+            row_definition_hash = (
+                historical_identity.get(
+                    "definition_sha256"
+                )
+                if historical_identity.get(
+                    "definition_sha256"
+                )
+                is not None
+                else definition_hash
+            )
+
+        else:
+            row_family = family
+            row_generation = generation
+            row_experiment_name = (
+                experiment_name
+            )
+            row_created_at = created_at
+            row_engine_version = (
+                engine_version
+            )
+            row_rules_version = (
+                rules_version
+            )
+            row_definition_hash = (
+                definition_hash
+            )
+
         row = {
             "experiment_id": (
                 experiment_id
             ),
-            "family": family,
+            "family": (
+                row_family
+            ),
             "generation": int(
-                generation
+                row_generation
             ),
             "experiment_name": (
-                experiment_name
+                row_experiment_name
             ),
             "config_sha256": (
                 config_hash
             ),
             "created_at": (
-                created_at
+                row_created_at
             ),
             "engine_version": (
-                engine_version
+                row_engine_version
             ),
             "rules_version": (
-                rules_version
+                row_rules_version
             ),
             "definition_sha256": (
-                definition_hash
+                row_definition_hash
             ),
         }
 

@@ -21,7 +21,7 @@ from operar_range.quantitative_models import (
 )
 from operar_range.research_workspace import (
     DEFAULT_COMPOSITE_WEIGHTS,
-    create_research,
+    create_research_stage22,
     estimate_research,
     execute_research,
     list_available_datasets,
@@ -375,11 +375,33 @@ def _trade2_research_from_state() -> dict[str, Any]:
 def _prepared_datasets() -> list[
     dict[str, Any]
 ]:
+    """
+    Novas pesquisas usam exclusivamente
+    Datasets oficiais Stage 22.
+
+    Datasets legacy permanecem visíveis no
+    catálogo histórico, mas não podem originar
+    novas pesquisas sem Dataset ID.
+    """
     return [
         row
         for row in list_available_datasets()
-        if row.get(
-            "prepared_for_research"
+        if (
+            row.get(
+                "prepared_for_research"
+            )
+            and row.get(
+                "catalog_origin"
+            )
+            == "STAGE22_ISOLATED"
+            and bool(
+                str(
+                    row.get(
+                        "dataset_id"
+                    )
+                    or ""
+                ).strip()
+            )
         )
     ]
 
@@ -572,6 +594,19 @@ def _build_definition(
         "dataset_version": (
             dataset.get(
                 "dataset_version"
+            )
+        ),
+        "market": (
+            dataset.get(
+                "market"
+            )
+        ),
+        "asset": (
+            dataset.get(
+                "asset"
+            )
+            or dataset.get(
+                "ticker"
             )
         ),
         "dataset_source_sha256": (
@@ -2669,7 +2704,7 @@ def _step_four(
 
     try:
         created = (
-            create_research(
+            create_research_stage22(
                 definition
             )
         )
@@ -2867,6 +2902,12 @@ def render() -> None:
                 "Utilize o Data Manager antes "
                 "de criar uma pesquisa."
             )
+        )
+
+        st.divider()
+
+        _render_model_explanation(
+            model
         )
 
         return

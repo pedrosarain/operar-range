@@ -19,7 +19,8 @@ from app.formatting import (
 from operar_range.research_workspace import (
     list_available_datasets,
     list_inbox_files,
-    process_datasets,
+    process_dataset_import_stage22,
+    save_dataset_upload,
     validate_inbox_selection,
 )
 
@@ -87,6 +88,8 @@ def _dataset_display_frame(
 
     preferred = [
         "dataset_id",
+        "market",
+        "asset",
         "ticker",
         "source",
         "sessions_total",
@@ -366,9 +369,20 @@ def _render_dataset_catalog() -> None:
                 ),
             ),
             (
+                "Mercado",
+                _text(
+                    selected.get(
+                        "market"
+                    )
+                ),
+            ),
+            (
                 "Ativo",
                 _text(
                     selected.get(
+                        "asset"
+                    )
+                    or selected.get(
                         "ticker"
                     )
                 ),
@@ -482,111 +496,209 @@ def _render_inbox() -> None:
     st.divider()
 
     section_title(
-        "Entrada de novos dados",
+        "Importar novo dataset",
         (
-            "Nesta versão os arquivos são "
-            "colocados manualmente em "
-            "`data/inbox/`."
+            "Declare o universo de pesquisa, "
+            "selecione os arquivos e deixe o "
+            "Operar Range preparar o Dataset."
         ),
     )
 
-    st.caption(
+    st.info(
         (
-            "Upload pelo navegador ainda não "
-            "faz parte da Etapa 18.5."
+            "Todos os arquivos selecionados "
+            "nesta importação formarão um único "
+            "Dataset ID."
         )
     )
 
-    rows = (
-        list_inbox_files()
+    left, right = st.columns(
+        2
     )
 
-    if not rows:
-        st.info(
-            (
-                "Nenhum arquivo encontrado "
-                "para processamento."
-            )
+    with left:
+        market = st.text_input(
+            "Mercado *",
+            placeholder=(
+                "Ex.: B3, CME, BMV"
+            ),
+            key=(
+                "stage22_dataset_market"
+            ),
         )
-        return
 
-    frame = (
-        _inbox_frame(
-            rows
+    with right:
+        asset = st.text_input(
+            "Ativo *",
+            placeholder=(
+                "Ex.: WIN, ES, IPC"
+            ),
+            key=(
+                "stage22_dataset_asset"
+            ),
         )
-    )
 
-    dataframe_view(
-        frame,
-        height=260,
-    )
-
-    selectable = [
-        row[
-            "name"
-        ]
-        for row in rows
-        if row.get(
-            "status"
-        )
-        in {
-            "NEW",
-            "PROCESSED",
-        }
-        and row.get(
-            "extension"
-        )
-        == ".zip"
-    ]
-
-    if not selectable:
-        return
-
-    selected = st.multiselect(
-        "Arquivos para processar",
-        options=selectable,
-        default=[
-            row[
-                "name"
-            ]
-            for row in rows
-            if row.get(
-                "status"
-            )
-            == "NEW"
-            and row.get(
-                "extension"
-            )
-            == ".zip"
-        ],
+    provider = st.text_input(
+        "Fornecedor",
+        placeholder=(
+            "Ex.: TickData, LSEG, Profit"
+        ),
         key=(
-            "stage185_data_files"
+            "stage22_dataset_provider"
         ),
     )
+
+    uploads = st.file_uploader(
+        "Arquivos do Dataset",
+        type=[
+            "zip",
+        ],
+        accept_multiple_files=True,
+        key=(
+            "stage22_dataset_uploads"
+        ),
+        help=(
+            "Selecione um ou vários arquivos ZIP. "
+            "Todos pertencerão ao mesmo Dataset ID."
+        ),
+    )
+
+    selected_names = []
+
+    upload_error = None
+
+    if uploads:
+        for upload in uploads:
+            try:
+                result = save_dataset_upload(
+                    filename=(
+                        upload.name
+                    ),
+                    content=(
+                        upload.getvalue()
+                    ),
+                )
+
+                selected_names.append(
+                    result[
+                        "name"
+                    ]
+                )
+
+            except Exception as exc:
+                upload_error = exc
+
+                st.error(
+                    (
+                        "Não foi possível armazenar "
+                        f"{upload.name}."
+                    )
+                )
+
+                st.caption(
+                    str(
+                        exc
+                    )
+                )
+
+                break
+
+    selected_names = sorted(
+        set(
+            selected_names
+        )
+    )
+
+    if selected_names:
+        st.caption(
+            (
+                f"{len(selected_names)} arquivo(s) "
+                "selecionado(s) para formar "
+                "este Dataset."
+            )
+        )
+
+        rows = [
+            row
+            for row in list_inbox_files()
+            if row.get(
+                "name"
+            )
+            in set(
+                selected_names
+            )
+        ]
+
+        frame = (
+            _inbox_frame(
+                rows
+            )
+        )
+
+        if not frame.empty:
+            dataframe_view(
+                frame,
+                height=220,
+            )
 
     validation = (
         validate_inbox_selection(
-            selected
+            selected_names
         )
+        if selected_names
+        else {
+            "valid": False,
+            "errors": [],
+        }
     )
 
-    if selected:
-        if validation.get(
-            "valid"
+    metadata_valid = bool(
+        str(
+            market
+        ).strip()
+        and str(
+            asset
+        ).strip()
+    )
+
+    if selected_names:
+        if (
+            validation.get(
+                "valid"
+            )
+            and metadata_valid
+            and upload_error is None
         ):
             status_badge(
-                "Validação",
-                "VALID",
+                "Importação",
+                "READY",
             )
+
         else:
             status_badge(
-                "Validação",
+                "Importação",
                 "ERROR",
             )
 
-            for error in validation.get(
-                "errors",
-                [],
+            if not str(
+                market
+            ).strip():
+                st.error(
+                    "Informe o Mercado."
+                )
+
+            if not str(
+                asset
+            ).strip():
+                st.error(
+                    "Informe o Ativo."
+                )
+
+            for error in (
+                validation.get(
+                    "errors",
+                    []
+                )
             ):
                 st.error(
                     str(
@@ -594,22 +706,22 @@ def _render_inbox() -> None:
                     )
                 )
 
-    process_disabled = (
-        not selected
+    disabled = bool(
+        not selected_names
+        or not metadata_valid
         or not validation.get(
             "valid"
         )
+        or upload_error is not None
     )
 
     if st.button(
-        "PROCESSAR DATASET",
+        "IMPORTAR E PREPARAR DATASET",
         type="primary",
         use_container_width=True,
-        disabled=(
-            process_disabled
-        ),
+        disabled=disabled,
         key=(
-            "stage185_process_dataset"
+            "stage22_process_dataset"
         ),
     ):
         progress_bar = st.progress(
@@ -626,31 +738,44 @@ def _render_inbox() -> None:
         )
 
         try:
-            process_datasets(
-                selected,
-                progress_callback=(
-                    callback
-                ),
+            result = (
+                process_dataset_import_stage22(
+                    market=(
+                        market
+                    ),
+                    asset=(
+                        asset
+                    ),
+                    provider=(
+                        provider
+                    ),
+                    filenames=(
+                        selected_names
+                    ),
+                    progress_callback=(
+                        callback
+                    ),
+                )
             )
 
         except Exception as exc:
             progress_bar.empty()
 
             status_box.error(
-                "Processamento não concluído."
+                "Importação não concluída."
             )
 
             st.error(
                 (
-                    "Não foi possível preparar "
-                    "o dataset selecionado."
+                    "O Dataset não pôde ser "
+                    "preparado."
                 )
             )
 
             st.caption(
-                type(
+                str(
                     exc
-                ).__name__
+                )
             )
 
             return
@@ -660,17 +785,17 @@ def _render_inbox() -> None:
         )
 
         status_box.success(
-            "Dataset preparado."
+            "Dataset pronto para pesquisa."
         )
-
-        st.cache_data.clear()
 
         st.success(
             (
-                "O dataset está disponível "
-                "para novas pesquisas."
+                "Dataset registrado: "
+                f"{result['dataset_id']}"
             )
         )
+
+        st.cache_data.clear()
 
         st.rerun()
 

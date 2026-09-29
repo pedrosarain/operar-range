@@ -33,6 +33,10 @@ def write_parquet(
 
 def base_definition() -> dict:
     return {
+        "dataset_id": "DS-STAGE22-TEST",
+        "dataset_version": 1,
+        "market": "B3",
+        "asset": "WIN",
         "strategy": "TRADE_1",
         "family": "TRADE1_STAGE18_TEST",
         "generation": 1,
@@ -204,6 +208,125 @@ def isolated_workspace(
     write_parquet(
         registry_path,
         [],
+    )
+
+    dataset_root = (
+        data_root
+        / "datasets"
+        / "DS-STAGE22-TEST"
+    )
+
+    dataset_normalized = (
+        dataset_root
+        / "normalized"
+    )
+
+    dataset_research = (
+        dataset_root
+        / "research"
+    )
+
+    dataset_trajectories = (
+        dataset_root
+        / "trajectories"
+    )
+
+    dataset_reports = (
+        dataset_root
+        / "reports"
+    )
+
+    for directory in (
+        dataset_normalized,
+        dataset_research,
+        dataset_trajectories,
+        dataset_reports,
+    ):
+        directory.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+    dataset_trade1_database = (
+        dataset_research
+        / "trade1_database.parquet"
+    )
+
+    dataset_trajectory_manifest = (
+        dataset_trajectories
+        / "trajectory_manifest.parquet"
+    )
+
+    write_parquet(
+        dataset_trade1_database,
+        [
+            {
+                "date": "2026-08-18",
+                "trade1_status": "TRADE_1",
+            },
+            {
+                "date": "2026-08-19",
+                "trade1_status": "NO_TRADE_1",
+            },
+        ],
+    )
+
+    write_parquet(
+        dataset_trajectory_manifest,
+        [
+            {
+                "date": "2026-08-18",
+                "source_parquet": (
+                    "day18.parquet"
+                ),
+                "trade1_status": (
+                    "TRADE_1"
+                ),
+                "trajectory_exists": True,
+            },
+            {
+                "date": "2026-08-19",
+                "source_parquet": (
+                    "day19.parquet"
+                ),
+                "trade1_status": (
+                    "NO_TRADE_1"
+                ),
+                "trajectory_exists": False,
+            },
+        ],
+    )
+
+    dataset_manifest = (
+        dataset_root
+        / "dataset_manifest.json"
+    )
+
+    dataset_manifest.write_text(
+        json.dumps(
+            {
+                "dataset_id": (
+                    "DS-STAGE22-TEST"
+                ),
+                "dataset_version": 1,
+                "market": "B3",
+                "asset": "WIN",
+                "provider": "TEST",
+                "period_start": (
+                    "2026-08-18"
+                ),
+                "period_end": (
+                    "2026-08-19"
+                ),
+                "sessions_total": 2,
+                "records_total": 2,
+                "quality_status": "READY",
+                "research_ready": True,
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
     )
 
     monkeypatch.setattr(
