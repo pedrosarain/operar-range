@@ -39,6 +39,7 @@ from app.pages import experiments  # noqa: E402
 from app.pages import new_research  # noqa: E402
 from app.pages import overview  # noqa: E402
 from app.pages import rankings  # noqa: E402
+from app.pages import query  # noqa: E402
 from app.pages import researches  # noqa: E402
 from app.pages import sessions  # noqa: E402
 from app.pages import system  # noqa: E402
@@ -60,6 +61,7 @@ PAGES = {
         trade_lifecycle_analytics.render
     ),
     "Rankings": rankings.render,
+    "Query": query.render,
     "Compare": compare.render,
     "Sessions": sessions.render,
     "System": system.render,
