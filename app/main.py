@@ -39,6 +39,7 @@ from app.pages import experiments  # noqa: E402
 from app.pages import new_research  # noqa: E402
 from app.pages import overview  # noqa: E402
 from app.pages import path_aggregation  # noqa: E402
+from app.pages import path_query  # noqa: E402
 from app.pages import path_analysis  # noqa: E402
 from app.pages import rankings  # noqa: E402
 from app.pages import query  # noqa: E402
@@ -58,6 +59,7 @@ PAGES = {
     "Overview": overview.render,
     "Path Analysis": path_analysis.render,
     "Path Aggregation": path_aggregation.render,
+    "Path Query": path_query.render,
     "Data": data.render,
     "Nova Pesquisa": new_research.render,
     "Pesquisas": researches.render,
