@@ -1406,10 +1406,27 @@ def _resolve_dataset_context(
             "mismatch."
         )
 
-    if not bool(
+    research_ready = bool(
         manifest.get(
             "research_ready"
         )
+    )
+
+    dataset_state = str(
+        manifest.get(
+            "dataset_state"
+        )
+        or (
+            "READY"
+            if research_ready
+            else "MATERIALIZED"
+        )
+    ).strip()
+
+    if (
+        not research_ready
+        or dataset_state
+        != "READY"
     ):
         raise RuntimeError(
             "DATASET_RESOLUTION_ERROR: "

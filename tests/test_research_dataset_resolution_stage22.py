@@ -982,3 +982,125 @@ def test_stage22_other_dataset_cannot_contaminate_period_manifest(
         "2026-08-18",
         "2026-08-19",
     }
+
+
+# ============================================================
+# Stage 22 — Alternative C Research readiness gate
+# ============================================================
+
+
+def _set_dataset_state(
+    root: Path,
+    *,
+    state: str,
+    research_ready: bool,
+) -> None:
+    manifest_path = (
+        root
+        / "dataset_manifest.json"
+    )
+
+    manifest = json.loads(
+        manifest_path.read_text(
+            encoding="utf-8"
+        )
+    )
+
+    manifest[
+        "dataset_state"
+    ] = state
+
+    manifest[
+        "research_ready"
+    ] = research_ready
+
+    manifest_path.write_text(
+        json.dumps(
+            manifest,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_materialized_dataset_cannot_start_new_research(
+    isolated_stage22,
+):
+    root = isolated_stage22[
+        "first"
+    ][
+        "root"
+    ]
+
+    _set_dataset_state(
+        root,
+        state="MATERIALIZED",
+        research_ready=False,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="is not research ready",
+    ):
+        workspace.create_research_stage22(
+            _definition(
+                "DS-AAAAAAAAAAAAAAAA"
+            )
+        )
+
+
+def test_failed_preparation_dataset_cannot_start_new_research(
+    isolated_stage22,
+):
+    root = isolated_stage22[
+        "first"
+    ][
+        "root"
+    ]
+
+    _set_dataset_state(
+        root,
+        state="FAILED_PREPARATION",
+        research_ready=False,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="is not research ready",
+    ):
+        workspace.create_research_stage22(
+            _definition(
+                "DS-AAAAAAAAAAAAAAAA"
+            )
+        )
+
+
+def test_ready_dataset_can_start_new_research(
+    isolated_stage22,
+):
+    root = isolated_stage22[
+        "first"
+    ][
+        "root"
+    ]
+
+    _set_dataset_state(
+        root,
+        state="READY",
+        research_ready=True,
+    )
+
+    created = (
+        workspace
+        .create_research_stage22(
+            _definition(
+                "DS-AAAAAAAAAAAAAAAA"
+            )
+        )
+    )
+
+    assert (
+        created[
+            "research_id"
+        ]
+    )

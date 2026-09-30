@@ -694,3 +694,396 @@ def test_multiple_zip_files_share_one_dataset_root(
         ]
         == 2
     )
+
+
+# ============================================================
+# Stage 22 — Alternative C transactional Materialization
+# ============================================================
+
+import pytest
+import operar_range.dataset_pipeline as pipeline
+
+
+@pytest.mark.parametrize(
+    "failure_call",
+    [
+        1,
+        2,
+        3,
+    ],
+)
+def test_materialization_failure_never_exposes_partial_dataset(
+    tmp_path,
+    monkeypatch,
+    failure_call,
+):
+    source = _zip(
+        tmp_path,
+        "three_components.zip",
+        {
+            "01.csv": _csv(
+                ticker="WIN",
+                date="2026-01-02",
+            ),
+            "02.csv": _csv(
+                ticker="WIN",
+                date="2026-01-05",
+            ),
+            "03.csv": _csv(
+                ticker="WIN",
+                date="2026-01-06",
+            ),
+        },
+    )
+
+    discovery = discover_dataset(
+        market="B3",
+        asset="WIN",
+        provider="AUDIT_GATE",
+        selected_files=[
+            source
+        ],
+    )
+
+    original = (
+        pipeline.normalize_vendor_csv
+    )
+
+    calls = {
+        "count": 0,
+    }
+
+    def controlled_failure(
+        *args,
+        **kwargs,
+    ):
+        calls[
+            "count"
+        ] += 1
+
+        if (
+            calls[
+                "count"
+            ]
+            == failure_call
+        ):
+            raise RuntimeError(
+                f"CONTROLLED_FAILURE_{failure_call}"
+            )
+
+        return original(
+            *args,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(
+        pipeline,
+        "normalize_vendor_csv",
+        controlled_failure,
+    )
+
+    data_root = (
+        tmp_path
+        / "data"
+    )
+
+    final_root = (
+        data_root
+        / "datasets"
+        / discovery[
+            "dataset_id"
+        ]
+    )
+
+    staging_root = (
+        data_root
+        / "datasets"
+        / ".staging"
+        / discovery[
+            "dataset_id"
+        ]
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            f"CONTROLLED_FAILURE_{failure_call}"
+        ),
+    ):
+        materialize_dataset(
+            discovery=discovery,
+            selected_files=[
+                source
+            ],
+            data_root=data_root,
+        )
+
+    #
+    # Fundamental Stage 22 invariant:
+    # partial Materialization never becomes a Dataset.
+    #
+    assert (
+        final_root.exists()
+        is False
+    )
+
+    assert (
+        (
+            final_root
+            / "dataset_manifest.json"
+        ).exists()
+        is False
+    )
+
+    #
+    # Staging may exist for diagnostics,
+    # but it is physically outside the definitive
+    # Dataset path.
+    #
+    assert staging_root.exists()
+
+    state_path = (
+        staging_root
+        / ".dataset_state.json"
+    )
+
+    assert state_path.exists()
+
+    state = json.loads(
+        state_path.read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert (
+        state[
+            "dataset_state"
+        ]
+        == "FAILED_MATERIALIZATION"
+    )
+
+
+def test_successful_materialization_atomically_promotes_dataset(
+    tmp_path,
+):
+    source = _zip(
+        tmp_path,
+        "success.zip",
+        {
+            "01.csv": _csv(
+                ticker="WIN",
+                date="2026-01-02",
+            ),
+            "02.csv": _csv(
+                ticker="WIN",
+                date="2026-01-05",
+            ),
+        },
+    )
+
+    discovery = discover_dataset(
+        market="B3",
+        asset="WIN",
+        selected_files=[
+            source
+        ],
+    )
+
+    data_root = (
+        tmp_path
+        / "data"
+    )
+
+    result = materialize_dataset(
+        discovery=discovery,
+        selected_files=[
+            source
+        ],
+        data_root=data_root,
+    )
+
+    final_root = (
+        data_root
+        / "datasets"
+        / discovery[
+            "dataset_id"
+        ]
+    )
+
+    staging_root = (
+        data_root
+        / "datasets"
+        / ".staging"
+        / discovery[
+            "dataset_id"
+        ]
+    )
+
+    assert (
+        result[
+            "status"
+        ]
+        == "MATERIALIZED"
+    )
+
+    assert final_root.exists()
+
+    assert (
+        final_root
+        / "dataset_manifest.json"
+    ).exists()
+
+    assert (
+        staging_root.exists()
+        is False
+    )
+
+    manifest = json.loads(
+        (
+            final_root
+            / "dataset_manifest.json"
+        ).read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert (
+        manifest[
+            "dataset_state"
+        ]
+        == "MATERIALIZED"
+    )
+
+    assert (
+        manifest[
+            "research_ready"
+        ]
+        is False
+    )
+
+
+def test_materialization_retry_discards_failed_staging_and_succeeds(
+    tmp_path,
+    monkeypatch,
+):
+    source = _zip(
+        tmp_path,
+        "retry.zip",
+        {
+            "01.csv": _csv(
+                ticker="WIN",
+                date="2026-01-02",
+            ),
+            "02.csv": _csv(
+                ticker="WIN",
+                date="2026-01-05",
+            ),
+        },
+    )
+
+    discovery = discover_dataset(
+        market="B3",
+        asset="WIN",
+        selected_files=[
+            source
+        ],
+    )
+
+    data_root = (
+        tmp_path
+        / "data"
+    )
+
+    original = (
+        pipeline.normalize_vendor_csv
+    )
+
+    calls = {
+        "count": 0,
+    }
+
+    def fail_second(
+        *args,
+        **kwargs,
+    ):
+        calls[
+            "count"
+        ] += 1
+
+        if (
+            calls[
+                "count"
+            ]
+            == 2
+        ):
+            raise RuntimeError(
+                "CONTROLLED_MID_FAILURE"
+            )
+
+        return original(
+            *args,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(
+        pipeline,
+        "normalize_vendor_csv",
+        fail_second,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="CONTROLLED_MID_FAILURE",
+    ):
+        materialize_dataset(
+            discovery=discovery,
+            selected_files=[
+                source
+            ],
+            data_root=data_root,
+        )
+
+    final_root = (
+        data_root
+        / "datasets"
+        / discovery[
+            "dataset_id"
+        ]
+    )
+
+    assert (
+        final_root.exists()
+        is False
+    )
+
+    monkeypatch.setattr(
+        pipeline,
+        "normalize_vendor_csv",
+        original,
+    )
+
+    result = materialize_dataset(
+        discovery=discovery,
+        selected_files=[
+            source
+        ],
+        data_root=data_root,
+    )
+
+    assert (
+        result[
+            "status"
+        ]
+        == "MATERIALIZED"
+    )
+
+    assert final_root.exists()
+
+    assert (
+        result[
+            "manifest"
+        ][
+            "research_ready"
+        ]
+        is False
+    )

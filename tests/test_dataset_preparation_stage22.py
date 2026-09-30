@@ -732,3 +732,485 @@ def test_manifest_records_derived_hashes(
             "sha256"
         ]
     )
+
+
+# ============================================================
+# Stage 22 — Alternative C transactional Preparation
+# ============================================================
+
+
+def _manifest(
+    path: Path,
+) -> dict:
+    return json.loads(
+        path.read_text(
+            encoding="utf-8"
+        )
+    )
+
+
+def _assert_failed_preparation_is_safe(
+    paths: dict[str, Path],
+) -> None:
+    manifest = _manifest(
+        paths[
+            "manifest"
+        ]
+    )
+
+    assert (
+        manifest[
+            "research_ready"
+        ]
+        is False
+    )
+
+    assert (
+        manifest[
+            "dataset_state"
+        ]
+        == "FAILED_PREPARATION"
+    )
+
+    derived = (
+        manifest[
+            "derived_artifacts"
+        ]
+    )
+
+    assert (
+        derived[
+            "trade1_database"
+        ]
+        is None
+    )
+
+    assert (
+        derived[
+            "trajectory_manifest"
+        ]
+        is None
+    )
+
+    assert (
+        derived[
+            "trajectories"
+        ]
+        == []
+    )
+
+    assert (
+        paths[
+            "trade1_database"
+        ].exists()
+        is False
+    )
+
+    assert (
+        paths[
+            "scanner_summary"
+        ].exists()
+        is False
+    )
+
+    assert (
+        paths[
+            "trajectory_manifest"
+        ].exists()
+        is False
+    )
+
+    official_trajectories = [
+        path
+        for path
+        in paths[
+            "trajectories"
+        ].glob(
+            "*.parquet"
+        )
+    ]
+
+    assert (
+        official_trajectories
+        == []
+    )
+
+    assert (
+        (
+            paths[
+                "root"
+            ]
+            / ".preparation_staging"
+        ).exists()
+        is False
+    )
+
+
+def test_preparation_failure_in_scanner_keeps_dataset_not_ready(
+    tmp_path,
+    monkeypatch,
+):
+    paths = _create_dataset(
+        root=(
+            tmp_path
+            / "data"
+        ),
+        dataset_id="DS-SCANNER-FAIL",
+    )
+
+    def fail_scanner(
+        **kwargs,
+    ):
+        raise RuntimeError(
+            "CONTROLLED_SCANNER_FAILURE"
+        )
+
+    monkeypatch.setattr(
+        pipeline,
+        "run_scanner",
+        fail_scanner,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="CONTROLLED_SCANNER_FAILURE",
+    ):
+        prepare_dataset_for_research(
+            dataset_id_value=(
+                "DS-SCANNER-FAIL"
+            ),
+            data_root=(
+                tmp_path
+                / "data"
+            ),
+        )
+
+    _assert_failed_preparation_is_safe(
+        paths
+    )
+
+
+def test_preparation_failure_after_trade_database_is_not_official(
+    tmp_path,
+    monkeypatch,
+):
+    paths = _create_dataset(
+        root=(
+            tmp_path
+            / "data"
+        ),
+        dataset_id="DS-TRADEDB-FAIL",
+    )
+
+    def partial_scanner(
+        *,
+        normalized_dir,
+        database_path,
+        summary_path,
+    ):
+        _write_parquet(
+            Path(
+                database_path
+            ),
+            "partial-trade-db",
+        )
+
+        raise RuntimeError(
+            "CONTROLLED_TRADE_DATABASE_FAILURE"
+        )
+
+    monkeypatch.setattr(
+        pipeline,
+        "run_scanner",
+        partial_scanner,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "CONTROLLED_TRADE_DATABASE_FAILURE"
+        ),
+    ):
+        prepare_dataset_for_research(
+            dataset_id_value=(
+                "DS-TRADEDB-FAIL"
+            ),
+            data_root=(
+                tmp_path
+                / "data"
+            ),
+        )
+
+    _assert_failed_preparation_is_safe(
+        paths
+    )
+
+
+def test_preparation_failure_in_trajectory_cache_keeps_dataset_not_ready(
+    tmp_path,
+    monkeypatch,
+):
+    paths = _create_dataset(
+        root=(
+            tmp_path
+            / "data"
+        ),
+        dataset_id="DS-TRAJECTORY-FAIL",
+    )
+
+    calls = []
+
+    def scanner(
+        *,
+        normalized_dir,
+        database_path,
+        summary_path,
+    ):
+        _write_parquet(
+            Path(
+                database_path
+            ),
+            "scanner-success",
+        )
+
+        Path(
+            summary_path
+        ).parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        Path(
+            summary_path
+        ).write_text(
+            "{}",
+            encoding="utf-8",
+        )
+
+        return {}
+
+    def fail_trajectory(
+        *,
+        normalized_dir,
+        trajectory_dir,
+        manifest_path,
+    ):
+        trajectory_dir = Path(
+            trajectory_dir
+        )
+
+        trajectory_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        _write_parquet(
+            trajectory_dir
+            / "partial.parquet",
+            "partial-trajectory",
+        )
+
+        raise RuntimeError(
+            "CONTROLLED_TRAJECTORY_FAILURE"
+        )
+
+    monkeypatch.setattr(
+        pipeline,
+        "run_scanner",
+        scanner,
+    )
+
+    monkeypatch.setattr(
+        pipeline,
+        "run_trajectory_cache",
+        fail_trajectory,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="CONTROLLED_TRAJECTORY_FAILURE",
+    ):
+        prepare_dataset_for_research(
+            dataset_id_value=(
+                "DS-TRAJECTORY-FAIL"
+            ),
+            data_root=(
+                tmp_path
+                / "data"
+            ),
+        )
+
+    _assert_failed_preparation_is_safe(
+        paths
+    )
+
+
+def test_failed_preparation_can_be_retried_without_reimport(
+    tmp_path,
+    monkeypatch,
+):
+    paths = _create_dataset(
+        root=(
+            tmp_path
+            / "data"
+        ),
+        dataset_id="DS-PREP-RETRY",
+    )
+
+    normalized_before = (
+        paths[
+            "normalized"
+        ]
+        / "session.parquet"
+    ).read_bytes()
+
+    def fail_scanner(
+        **kwargs,
+    ):
+        raise RuntimeError(
+            "CONTROLLED_PREPARATION_FAILURE"
+        )
+
+    monkeypatch.setattr(
+        pipeline,
+        "run_scanner",
+        fail_scanner,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="CONTROLLED_PREPARATION_FAILURE",
+    ):
+        prepare_dataset_for_research(
+            dataset_id_value=(
+                "DS-PREP-RETRY"
+            ),
+            data_root=(
+                tmp_path
+                / "data"
+            ),
+        )
+
+    failed = _manifest(
+        paths[
+            "manifest"
+        ]
+    )
+
+    assert (
+        failed[
+            "dataset_state"
+        ]
+        == "FAILED_PREPARATION"
+    )
+
+    calls = []
+
+    _install_fake_engines(
+        monkeypatch,
+        calls,
+    )
+
+    result = prepare_dataset_for_research(
+        dataset_id_value=(
+            "DS-PREP-RETRY"
+        ),
+        data_root=(
+            tmp_path
+            / "data"
+        ),
+    )
+
+    normalized_after = (
+        paths[
+            "normalized"
+        ]
+        / "session.parquet"
+    ).read_bytes()
+
+    assert (
+        normalized_before
+        == normalized_after
+    )
+
+    assert (
+        result[
+            "status"
+        ]
+        == "READY"
+    )
+
+    assert (
+        result[
+            "manifest"
+        ][
+            "research_ready"
+        ]
+        is True
+    )
+
+    assert (
+        result[
+            "manifest"
+        ][
+            "dataset_state"
+        ]
+        == "READY"
+    )
+
+
+def test_successful_preparation_has_formal_ready_state(
+    tmp_path,
+    monkeypatch,
+):
+    paths = _create_dataset(
+        root=(
+            tmp_path
+            / "data"
+        ),
+        dataset_id="DS-FORMAL-READY",
+    )
+
+    calls = []
+
+    _install_fake_engines(
+        monkeypatch,
+        calls,
+    )
+
+    result = prepare_dataset_for_research(
+        dataset_id_value=(
+            "DS-FORMAL-READY"
+        ),
+        data_root=(
+            tmp_path
+            / "data"
+        ),
+    )
+
+    manifest = _manifest(
+        paths[
+            "manifest"
+        ]
+    )
+
+    assert (
+        result[
+            "status"
+        ]
+        == "READY"
+    )
+
+    assert (
+        manifest[
+            "dataset_state"
+        ]
+        == "READY"
+    )
+
+    assert (
+        manifest[
+            "research_ready"
+        ]
+        is True
+    )

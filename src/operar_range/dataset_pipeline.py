@@ -38,6 +38,175 @@ class DatasetMaterializationError(
     pass
 
 
+DATASET_STATE_DISCOVERED = "DISCOVERED"
+DATASET_STATE_MATERIALIZING = "MATERIALIZING"
+DATASET_STATE_MATERIALIZED = "MATERIALIZED"
+DATASET_STATE_PREPARING = "PREPARING"
+DATASET_STATE_READY = "READY"
+DATASET_STATE_FAILED_MATERIALIZATION = (
+    "FAILED_MATERIALIZATION"
+)
+DATASET_STATE_FAILED_PREPARATION = (
+    "FAILED_PREPARATION"
+)
+
+
+def _materialization_staging_root(
+    *,
+    data_root: str | Path,
+    dataset_id_value: str,
+) -> Path:
+    return (
+        Path(data_root)
+        / "datasets"
+        / ".staging"
+        / dataset_id_value
+    )
+
+
+def _preparation_staging_root(
+    paths: dict[str, Path],
+) -> Path:
+    return (
+        paths["root"]
+        / ".preparation_staging"
+    )
+
+
+def _rebase_path(
+    path: Path,
+    *,
+    source_root: Path,
+    target_root: Path,
+) -> Path:
+    return (
+        target_root
+        / path.relative_to(
+            source_root
+        )
+    )
+
+
+def _rebase_tree(
+    value: Any,
+    *,
+    source_root: Path,
+    target_root: Path,
+) -> Any:
+    source_text = str(
+        source_root
+    )
+    target_text = str(
+        target_root
+    )
+
+    if isinstance(
+        value,
+        dict,
+    ):
+        return {
+            key: _rebase_tree(
+                item,
+                source_root=source_root,
+                target_root=target_root,
+            )
+            for key, item
+            in value.items()
+        }
+
+    if isinstance(
+        value,
+        list,
+    ):
+        return [
+            _rebase_tree(
+                item,
+                source_root=source_root,
+                target_root=target_root,
+            )
+            for item in value
+        ]
+
+    if isinstance(
+        value,
+        tuple,
+    ):
+        return tuple(
+            _rebase_tree(
+                item,
+                source_root=source_root,
+                target_root=target_root,
+            )
+            for item in value
+        )
+
+    if isinstance(
+        value,
+        str,
+    ) and (
+        value == source_text
+        or value.startswith(
+            source_text + "/"
+        )
+    ):
+        return (
+            target_text
+            + value[
+                len(
+                    source_text
+                ):
+            ]
+        )
+
+    return value
+
+
+def _paths_rebased_to_root(
+    *,
+    paths: dict[str, Path],
+    target_root: Path,
+) -> dict[str, Path]:
+    source_root = paths[
+        "root"
+    ]
+
+    return {
+        key: (
+            target_root
+            if path == source_root
+            else _rebase_path(
+                path,
+                source_root=source_root,
+                target_root=target_root,
+            )
+        )
+        for key, path
+        in paths.items()
+    }
+
+
+def _ensure_dataset_path_directories(
+    paths: dict[str, Path],
+) -> None:
+    for key in (
+        "root",
+        "source",
+        "source_zip",
+        "source_csv",
+        "normalized",
+        "quality",
+        "research",
+        "trajectories",
+        "reports",
+    ):
+        paths[
+            key
+        ].mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+
 def _canonical_json(
     value: Any,
 ) -> str:
@@ -84,7 +253,16 @@ def _write_json(
         exist_ok=True,
     )
 
-    path.write_text(
+    temporary_path = (
+        path.parent
+        / (
+            "."
+            + path.name
+            + ".tmp"
+        )
+    )
+
+    temporary_path.write_text(
         json.dumps(
             value,
             indent=2,
@@ -92,6 +270,10 @@ def _write_json(
             ensure_ascii=False,
         ),
         encoding="utf-8",
+    )
+
+    temporary_path.replace(
+        path
     )
 
 
@@ -346,7 +528,7 @@ def _existing_dataset_result(
     }
 
 
-def materialize_dataset(
+def _materialize_dataset_transaction_body(
     *,
     discovery: dict[str, Any],
     selected_files: list[
@@ -404,7 +586,7 @@ def materialize_dataset(
         inventory=inventory,
     )
 
-    paths = dataset_paths(
+    final_paths = dataset_paths(
         data_root=data_root,
         dataset_id_value=(
             dataset_id_value
@@ -413,7 +595,7 @@ def materialize_dataset(
 
     existing = (
         _existing_dataset_result(
-            paths=paths,
+            paths=final_paths,
             discovery=discovery,
         )
     )
@@ -421,11 +603,39 @@ def materialize_dataset(
     if existing is not None:
         return existing
 
-    paths = ensure_dataset_directories(
-        data_root=data_root,
-        dataset_id_value=(
-            dataset_id_value
+    staging_root = (
+        _materialization_staging_root(
+            data_root=data_root,
+            dataset_id_value=(
+                dataset_id_value
+            ),
+        )
+    )
+
+    paths = (
+        _paths_rebased_to_root(
+            paths=final_paths,
+            target_root=staging_root,
+        )
+    )
+
+    _ensure_dataset_path_directories(
+        paths
+    )
+
+    _write_json(
+        path=(
+            staging_root
+            / ".dataset_state.json"
         ),
+        value={
+            "dataset_id": (
+                dataset_id_value
+            ),
+            "dataset_state": (
+                DATASET_STATE_MATERIALIZING
+            ),
+        },
     )
 
     imported_at = utc_now()
@@ -704,6 +914,18 @@ def materialize_dataset(
                     "original_source_csv"
                 ] = original_csv_name
 
+                report = _rebase_tree(
+                    report,
+                    source_root=(
+                        staging_root
+                    ),
+                    target_root=(
+                        final_paths[
+                            "root"
+                        ]
+                    ),
+                )
+
                 _write_json(
                     path=report_path,
                     value=report,
@@ -813,6 +1035,9 @@ def materialize_dataset(
         "dataset_id": (
             dataset_id_value
         ),
+        "dataset_state": (
+            DATASET_STATE_MATERIALIZED
+        ),
         "dataset_version": (
             discovery[
                 "dataset_version"
@@ -905,6 +1130,18 @@ def materialize_dataset(
         },
     }
 
+    manifest = _rebase_tree(
+        manifest,
+        source_root=(
+            staging_root
+        ),
+        target_root=(
+            final_paths[
+                "root"
+            ]
+        ),
+    )
+
     _write_json(
         path=(
             paths[
@@ -935,6 +1172,182 @@ def materialize_dataset(
             in paths.items()
         },
     }
+
+
+def materialize_dataset(
+    *,
+    discovery: dict[str, Any],
+    selected_files: list[
+        str | Path
+    ],
+    data_root: str | Path = "data",
+) -> dict[str, Any]:
+    dataset_id_value = str(
+        discovery.get(
+            "dataset_id"
+        )
+        or ""
+    ).strip()
+
+    if not dataset_id_value:
+        raise DatasetMaterializationError(
+            "DATASET_MATERIALIZATION_ERROR: "
+            "dataset_id is required."
+        )
+
+    final_paths = dataset_paths(
+        data_root=data_root,
+        dataset_id_value=(
+            dataset_id_value
+        ),
+    )
+
+    existing = (
+        _existing_dataset_result(
+            paths=final_paths,
+            discovery=discovery,
+        )
+    )
+
+    if existing is not None:
+        return existing
+
+    staging_root = (
+        _materialization_staging_root(
+            data_root=data_root,
+            dataset_id_value=(
+                dataset_id_value
+            ),
+        )
+    )
+
+    #
+    # Retry policy:
+    # a previous failed staging area is diagnostic
+    # only. It is never a Dataset and is discarded
+    # when an explicit retry starts.
+    #
+    if staging_root.exists():
+        shutil.rmtree(
+            staging_root
+        )
+
+    try:
+        result = (
+            _materialize_dataset_transaction_body(
+                discovery=discovery,
+                selected_files=(
+                    selected_files
+                ),
+                data_root=data_root,
+            )
+        )
+
+        if (
+            result.get(
+                "status"
+            )
+            == "ALREADY_MATERIALIZED"
+        ):
+            return result
+
+        if not (
+            staging_root
+            / "dataset_manifest.json"
+        ).exists():
+            raise DatasetMaterializationError(
+                "DATASET_MATERIALIZATION_ERROR: "
+                "staging manifest missing "
+                "before atomic promotion."
+            )
+
+        if final_paths[
+            "root"
+        ].exists():
+            raise DatasetMaterializationError(
+                "DATASET_MATERIALIZATION_ERROR: "
+                "final Dataset appeared before "
+                "atomic promotion."
+            )
+
+        state_path = (
+            staging_root
+            / ".dataset_state.json"
+        )
+
+        if state_path.exists():
+            state_path.unlink()
+
+        final_paths[
+            "root"
+        ].parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        #
+        # Same-filesystem directory rename:
+        # the Dataset becomes visible only here.
+        #
+        staging_root.rename(
+            final_paths[
+                "root"
+            ]
+        )
+
+        manifest = _read_json(
+            final_paths[
+                "manifest"
+            ]
+        )
+
+        return {
+            "dataset_id": (
+                dataset_id_value
+            ),
+            "status": "MATERIALIZED",
+            "manifest": manifest,
+            "manifest_path": str(
+                final_paths[
+                    "manifest"
+                ]
+            ),
+            "paths": {
+                key: str(
+                    value
+                )
+                for key, value
+                in final_paths.items()
+            },
+        }
+
+    except Exception as exc:
+        if staging_root.exists():
+            try:
+                _write_json(
+                    path=(
+                        staging_root
+                        / ".dataset_state.json"
+                    ),
+                    value={
+                        "dataset_id": (
+                            dataset_id_value
+                        ),
+                        "dataset_state": (
+                            DATASET_STATE_FAILED_MATERIALIZATION
+                        ),
+                        "error_type": (
+                            type(exc).__name__
+                        ),
+                        "error": str(
+                            exc
+                        ),
+                    },
+                )
+            except Exception:
+                pass
+
+        raise
 
 
 def _derived_artifact(
@@ -1229,137 +1642,424 @@ def prepare_dataset_for_research(
             "Parquet files."
         )
 
-    #
-    # Scanner homologado.
-    #
-    # IMPORTANTE:
-    # recebe somente o normalized deste
-    # Dataset ID.
-    #
-    scanner = run_scanner(
-        normalized_dir=(
-            normalized_dir
-        ),
-        database_path=(
-            paths[
-                "trade1_database"
-            ]
-        ),
-        summary_path=(
-            paths[
-                "scanner_summary"
-            ]
-        ),
-    )
-
-    #
-    # Trajectory Cache homologado.
-    #
-    # Também recebe somente o espaço
-    # físico deste Dataset ID.
-    #
-    trajectory_cache = (
-        run_trajectory_cache(
-            normalized_dir=(
-                normalized_dir
-            ),
-            trajectory_dir=(
-                paths[
-                    "trajectories"
-                ]
-            ),
-            manifest_path=(
-                paths[
-                    "trajectory_manifest"
-                ]
-            ),
+    staging_root = (
+        _preparation_staging_root(
+            paths
         )
     )
 
-    trade1_artifact = (
-        _derived_artifact(
-            paths[
-                "trade1_database"
-            ]
+    #
+    # Retry policy:
+    # staging outputs from an interrupted/failed
+    # Preparation are never official artifacts.
+    #
+    if staging_root.exists():
+        shutil.rmtree(
+            staging_root
         )
+
+    staging_research = (
+        staging_root
+        / "research"
     )
 
-    scanner_summary_artifact = (
-        _derived_artifact(
-            paths[
-                "scanner_summary"
-            ]
-        )
+    staging_reports = (
+        staging_root
+        / "reports"
     )
 
-    trajectory_manifest_artifact = (
-        _derived_artifact(
-            paths[
-                "trajectory_manifest"
-            ]
-        )
+    staging_trajectories = (
+        staging_root
+        / "trajectories"
     )
 
-    trajectories = (
-        _trajectory_artifacts(
-            paths[
-                "trajectories"
-            ],
-            paths[
-                "trajectory_manifest"
-            ],
-        )
+    staging_trade1_database = (
+        staging_research
+        / "trade1_database.parquet"
     )
+
+    staging_scanner_summary = (
+        staging_reports
+        / "trade1_database_summary.json"
+    )
+
+    staging_trajectory_manifest = (
+        staging_trajectories
+        / "trajectory_manifest.parquet"
+    )
+
+    staging_research.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    staging_reports.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    staging_trajectories.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    #
+    # PREPARING is persisted before engines run.
+    # Research remains forbidden.
+    #
+    manifest[
+        "dataset_state"
+    ] = DATASET_STATE_PREPARING
+
+    manifest[
+        "research_ready"
+    ] = False
 
     manifest[
         "derived_artifacts"
     ] = {
-        "trade1_database": (
-            trade1_artifact
-        ),
-        "scanner_summary": (
-            scanner_summary_artifact
-        ),
-        "trajectory_manifest": (
-            trajectory_manifest_artifact
-        ),
-        "trajectories": (
-            trajectories
-        ),
+        "trade1_database": None,
+        "scanner_summary": None,
+        "trajectory_manifest": None,
+        "trajectories": [],
     }
-
-    manifest[
-        "research_ready"
-    ] = True
-
-    manifest[
-        "research_prepared_at"
-    ] = utc_now()
 
     _write_json(
         path=manifest_path,
         value=manifest,
     )
 
-    return {
-        "dataset_id": (
-            dataset_id_value
-        ),
-        "status": "READY",
-        "manifest": manifest,
-        "manifest_path": str(
-            manifest_path
-        ),
-        "paths": {
-            key: str(
-                value
+    promoted = []
+
+    try:
+        scanner = run_scanner(
+            normalized_dir=(
+                normalized_dir
+            ),
+            database_path=(
+                staging_trade1_database
+            ),
+            summary_path=(
+                staging_scanner_summary
+            ),
+        )
+
+        trajectory_cache = (
+            run_trajectory_cache(
+                normalized_dir=(
+                    normalized_dir
+                ),
+                trajectory_dir=(
+                    staging_trajectories
+                ),
+                manifest_path=(
+                    staging_trajectory_manifest
+                ),
             )
-            for key, value
-            in paths.items()
-        },
-        "scanner": scanner,
-        "trajectory_cache": (
-            trajectory_cache
-        ),
-    }
+        )
+
+        #
+        # Validate every required staged output
+        # before anything becomes official.
+        #
+        for required in (
+            staging_trade1_database,
+            staging_scanner_summary,
+            staging_trajectory_manifest,
+        ):
+            if not required.exists():
+                raise DatasetMaterializationError(
+                    "DATASET_PREPARATION_ERROR: "
+                    "staged derived artifact "
+                    "is missing: "
+                    f"{required}"
+                )
+
+        staged_trajectory_files = sorted(
+            path
+            for path
+            in staging_trajectories.glob(
+                "*.parquet"
+            )
+            if (
+                path.resolve()
+                != staging_trajectory_manifest.resolve()
+            )
+        )
+
+        trade1_artifact = {
+            "path": str(
+                paths[
+                    "trade1_database"
+                ]
+            ),
+            "sha256": (
+                sha256_file(
+                    staging_trade1_database
+                )
+            ),
+        }
+
+        scanner_summary_artifact = {
+            "path": str(
+                paths[
+                    "scanner_summary"
+                ]
+            ),
+            "sha256": (
+                sha256_file(
+                    staging_scanner_summary
+                )
+            ),
+        }
+
+        trajectory_manifest_artifact = {
+            "path": str(
+                paths[
+                    "trajectory_manifest"
+                ]
+            ),
+            "sha256": (
+                sha256_file(
+                    staging_trajectory_manifest
+                )
+            ),
+        }
+
+        trajectories = []
+
+        for staged_path in (
+            staged_trajectory_files
+        ):
+            final_path = (
+                paths[
+                    "trajectories"
+                ]
+                / staged_path.name
+            )
+
+            trajectories.append(
+                {
+                    "path": str(
+                        final_path
+                    ),
+                    "sha256": (
+                        sha256_file(
+                            staged_path
+                        )
+                    ),
+                }
+            )
+
+        #
+        # Promotion of the derived layer.
+        #
+        # research_ready is still false throughout.
+        # If any promotion fails, all derived official
+        # paths are removed again in the exception path.
+        #
+        for final_dir in (
+            paths[
+                "research"
+            ],
+            paths[
+                "reports"
+            ],
+            paths[
+                "trajectories"
+            ],
+        ):
+            if final_dir.exists():
+                shutil.rmtree(
+                    final_dir
+                )
+
+        promotion_pairs = (
+            (
+                staging_research,
+                paths[
+                    "research"
+                ],
+            ),
+            (
+                staging_reports,
+                paths[
+                    "reports"
+                ],
+            ),
+            (
+                staging_trajectories,
+                paths[
+                    "trajectories"
+                ],
+            ),
+        )
+
+        for (
+            staged_dir,
+            final_dir,
+        ) in promotion_pairs:
+            staged_dir.rename(
+                final_dir
+            )
+
+            promoted.append(
+                final_dir
+            )
+
+        manifest[
+            "derived_artifacts"
+        ] = {
+            "trade1_database": (
+                trade1_artifact
+            ),
+            "scanner_summary": (
+                scanner_summary_artifact
+            ),
+            "trajectory_manifest": (
+                trajectory_manifest_artifact
+            ),
+            "trajectories": (
+                trajectories
+            ),
+        }
+
+        manifest[
+            "research_prepared_at"
+        ] = utc_now()
+
+        manifest[
+            "dataset_state"
+        ] = DATASET_STATE_READY
+
+        #
+        # READY is the commit marker of Preparation.
+        #
+        manifest[
+            "research_ready"
+        ] = True
+
+        _write_json(
+            path=manifest_path,
+            value=manifest,
+        )
+
+        if staging_root.exists():
+            shutil.rmtree(
+                staging_root
+            )
+
+        scanner = _rebase_tree(
+            scanner,
+            source_root=(
+                staging_root
+            ),
+            target_root=(
+                paths[
+                    "root"
+                ]
+            ),
+        )
+
+        trajectory_cache = (
+            _rebase_tree(
+                trajectory_cache,
+                source_root=(
+                    staging_root
+                ),
+                target_root=(
+                    paths[
+                        "root"
+                    ]
+                ),
+            )
+        )
+
+        return {
+            "dataset_id": (
+                dataset_id_value
+            ),
+            "status": "READY",
+            "manifest": manifest,
+            "manifest_path": str(
+                manifest_path
+            ),
+            "paths": {
+                key: str(
+                    value
+                )
+                for key, value
+                in paths.items()
+            },
+            "scanner": scanner,
+            "trajectory_cache": (
+                trajectory_cache
+            ),
+        }
+
+    except Exception:
+        #
+        # No derived artifact from a failed Preparation
+        # is allowed to remain official.
+        #
+        for final_dir in (
+            paths[
+                "research"
+            ],
+            paths[
+                "reports"
+            ],
+            paths[
+                "trajectories"
+            ],
+        ):
+            if final_dir.exists():
+                shutil.rmtree(
+                    final_dir
+                )
+
+            final_dir.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
+        if staging_root.exists():
+            shutil.rmtree(
+                staging_root
+            )
+
+        failed_manifest = dict(
+            manifest
+        )
+
+        failed_manifest[
+            "dataset_state"
+        ] = (
+            DATASET_STATE_FAILED_PREPARATION
+        )
+
+        failed_manifest[
+            "research_ready"
+        ] = False
+
+        failed_manifest[
+            "derived_artifacts"
+        ] = {
+            "trade1_database": None,
+            "scanner_summary": None,
+            "trajectory_manifest": None,
+            "trajectories": [],
+        }
+
+        failed_manifest.pop(
+            "research_prepared_at",
+            None,
+        )
+
+        _write_json(
+            path=manifest_path,
+            value=failed_manifest,
+        )
+
+        raise
 
