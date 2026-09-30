@@ -38,6 +38,7 @@ from app.pages import data  # noqa: E402
 from app.pages import experiments  # noqa: E402
 from app.pages import new_research  # noqa: E402
 from app.pages import overview  # noqa: E402
+from app.pages import path_analysis  # noqa: E402
 from app.pages import rankings  # noqa: E402
 from app.pages import query  # noqa: E402
 from app.pages import researches  # noqa: E402
@@ -54,6 +55,7 @@ APP_TITLE = (
 
 PAGES = {
     "Overview": overview.render,
+    "Path Analysis": path_analysis.render,
     "Data": data.render,
     "Nova Pesquisa": new_research.render,
     "Pesquisas": researches.render,
