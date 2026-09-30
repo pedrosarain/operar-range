@@ -13,6 +13,7 @@ from operar_range.management import (
     ManagementConfig,
 )
 from operar_range.experiment_generator import (
+    config_hashes_from_canonical_json,
     config_sha256 as experiment_config_sha256,
 )
 from operar_range.trade2_configuration import (
@@ -377,6 +378,331 @@ def _config_payload(
             field
         )
 
+    canonical_config_json_value = (
+        row.get(
+            "canonical_config_json"
+        )
+    )
+
+    if canonical_config_json_value:
+        canonical_config_json_value = str(
+            canonical_config_json_value
+        )
+
+        identity = (
+            config_hashes_from_canonical_json(
+                canonical_config_json_value
+            )
+        )
+
+        document = identity[
+            "document"
+        ]
+
+        canonical_trade1 = dict(
+            document[
+                "trade1"
+            ]
+        )
+
+        canonical_trade2 = dict(
+            document[
+                "trade2"
+            ]
+        )
+
+        canonical_overrides = (
+            normalize_trade2_overrides(
+                canonical_trade2.get(
+                    "overrides"
+                )
+                or {}
+            )
+        )
+
+        if bool(
+            canonical_trade2.get(
+                "legacy_semantics"
+            )
+        ):
+            control_row = {}
+
+        else:
+            control_row = {
+                "trade2_enabled": (
+                    canonical_trade2.get(
+                        "enabled"
+                    )
+                ),
+                "trade2_management_mode": (
+                    canonical_trade2.get(
+                        "management_mode"
+                    )
+                ),
+            }
+
+        trade2_control = (
+            trade2_control_from_row(
+                control_row
+            )
+        )
+
+        trade1_config = ManagementConfig(
+            stop_points=float(
+                canonical_trade1[
+                    "stop_points"
+                ]
+            ),
+            partial_1_points=(
+                canonical_trade1[
+                    "partial_1_points"
+                ]
+            ),
+            partial_1_pct=(
+                canonical_trade1[
+                    "partial_1_pct"
+                ]
+            ),
+            partial_2_points=(
+                canonical_trade1[
+                    "partial_2_points"
+                ]
+            ),
+            partial_2_pct=(
+                canonical_trade1[
+                    "partial_2_pct"
+                ]
+            ),
+            partial_3_points=(
+                canonical_trade1[
+                    "partial_3_points"
+                ]
+            ),
+            partial_3_pct=(
+                canonical_trade1[
+                    "partial_3_pct"
+                ]
+            ),
+            break_even_enabled=bool(
+                canonical_trade1[
+                    "break_even_enabled"
+                ]
+            ),
+            break_even_after_partial=(
+                canonical_trade1[
+                    "break_even_after_partial"
+                ]
+            ),
+            runner_enabled=bool(
+                canonical_trade1[
+                    "runner_enabled"
+                ]
+            ),
+            runner_pct=(
+                canonical_trade1[
+                    "runner_pct"
+                ]
+            ),
+            runner_exit_rule=(
+                canonical_trade1[
+                    "runner_rule"
+                ]
+            ),
+            final_target_points=(
+                canonical_trade1[
+                    "final_target_points"
+                ]
+            ),
+            position_size=100.0,
+        )
+
+        effective_trade2 = (
+            resolve_trade2_management_config(
+                trade1_config=(
+                    trade1_config
+                ),
+                overrides=(
+                    canonical_overrides
+                ),
+                validate_effective=False,
+            )
+        )
+
+        expected_global_hash = row.get(
+            "config_sha256"
+        )
+
+        if (
+            expected_global_hash is not None
+            and str(
+                expected_global_hash
+            )
+            != str(
+                identity[
+                    "config_sha256"
+                ]
+            )
+        ):
+            raise RuntimeError(
+                (
+                    "Canonical config hash "
+                    "mismatch while building "
+                    "lineage for "
+                    f"{row.get('experiment_id')}."
+                )
+            )
+
+        expected_trade1_hash = row.get(
+            "trade1_config_sha256"
+        )
+
+        if (
+            expected_trade1_hash is not None
+            and str(
+                expected_trade1_hash
+            )
+            != str(
+                identity[
+                    "trade1_config_sha256"
+                ]
+            )
+        ):
+            raise RuntimeError(
+                (
+                    "Canonical Trade 1 config "
+                    "hash mismatch while "
+                    "building lineage for "
+                    f"{row.get('experiment_id')}."
+                )
+            )
+
+        expected_override_hash = row.get(
+            "trade2_override_sha256"
+        )
+
+        if (
+            expected_override_hash is not None
+            and str(
+                expected_override_hash
+            )
+            != str(
+                identity[
+                    "trade2_override_sha256"
+                ]
+            )
+        ):
+            raise RuntimeError(
+                (
+                    "Canonical Trade 2 override "
+                    "hash mismatch while "
+                    "building lineage for "
+                    f"{row.get('experiment_id')}."
+                )
+            )
+
+        expected_effective_hash = row.get(
+            "trade2_effective_config_sha256"
+        )
+
+        if (
+            expected_effective_hash is not None
+            and str(
+                expected_effective_hash
+            )
+            != str(
+                identity[
+                    "trade2_effective_config_sha256"
+                ]
+            )
+        ):
+            raise RuntimeError(
+                (
+                    "Canonical Trade 2 effective "
+                    "config hash mismatch while "
+                    "building lineage for "
+                    f"{row.get('experiment_id')}."
+                )
+            )
+
+        payload = dict(
+            canonical_trade1
+        )
+
+        payload.update(
+            {
+                "trade1_configuration": (
+                    asdict(
+                        trade1_config
+                    )
+                ),
+                "trade2_enabled": (
+                    trade2_control[
+                        "trade2_enabled"
+                    ]
+                ),
+                "trade2_management_mode": (
+                    trade2_control[
+                        "trade2_management_mode"
+                    ]
+                ),
+                "trade2_legacy_semantics": (
+                    trade2_control[
+                        "legacy_semantics"
+                    ]
+                ),
+                "trade2_overrides": (
+                    canonical_overrides
+                ),
+                (
+                    "trade2_effective_configuration"
+                ): (
+                    asdict(
+                        effective_trade2
+                    )
+                ),
+                "trade1_config_sha256": (
+                    identity[
+                        "trade1_config_sha256"
+                    ]
+                ),
+                "trade2_override_sha256": (
+                    identity[
+                        "trade2_override_sha256"
+                    ]
+                ),
+                (
+                    "trade2_effective_config_sha256"
+                ): (
+                    identity[
+                        "trade2_effective_config_sha256"
+                    ]
+                ),
+                (
+                    "trade2_has_explicit_overrides"
+                ): (
+                    trade2_has_explicit_overrides(
+                        canonical_overrides
+                    )
+                ),
+                "config_identity_version": (
+                    row.get(
+                        "config_identity_version"
+                    )
+                ),
+                "canonical_config_json": (
+                    canonical_config_json_value
+                ),
+            }
+        )
+
+        return payload
+
+    #
+    # LEGACY FALLBACK ONLY.
+    #
+    # Experimentos históricos sem canonical_config_json
+    # preservam o contrato anterior e podem depender da
+    # reconstrução numérica histórica abaixo.
     #
     # BACKWARD COMPATIBILITY:
     #

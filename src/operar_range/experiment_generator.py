@@ -31,6 +31,14 @@ from operar_range.trade2_configuration import (
 
 GENERATOR_VERSION = "experiment-generator-v1"
 
+CONFIG_IDENTITY_VERSION_LEGACY = (
+    "LEGACY_V1_RECOVERED"
+)
+
+CONFIG_IDENTITY_VERSION_CANONICAL = (
+    "CANONICAL_V2"
+)
+
 
 CONFIG_FIELDS = (
     "stop_points",
@@ -56,6 +64,14 @@ GENERATED_EXPERIMENT_SCHEMA = pa.schema(
         ("generation", pa.int64()),
         ("experiment_name", pa.string()),
         ("config_sha256", pa.string()),
+        (
+            "config_identity_version",
+            pa.string(),
+        ),
+        (
+            "canonical_config_json",
+            pa.string(),
+        ),
         ("created_at", pa.string()),
         ("engine_version", pa.string()),
         ("rules_version", pa.string()),
@@ -159,6 +175,365 @@ def sha256_file(
             digest.update(chunk)
 
     return digest.hexdigest()
+
+
+def _normalize_identity_number(
+    value: Any,
+) -> Any:
+    if isinstance(
+        value,
+        bool,
+    ):
+        return value
+
+    if isinstance(
+        value,
+        int,
+    ):
+        return value
+
+    if isinstance(
+        value,
+        float,
+    ):
+        if not (
+            value
+            == value
+            and value
+            not in (
+                float("inf"),
+                float("-inf"),
+            )
+        ):
+            raise ValueError(
+                "Configuration identity "
+                "cannot contain non-finite "
+                "numeric values."
+            )
+
+        if value.is_integer():
+            return int(
+                value
+            )
+
+        return float(
+            value
+        )
+
+    return value
+
+
+def _canonical_trade1_config(
+    config: dict[str, Any],
+    *,
+    semantic_normalization: bool,
+) -> dict[str, Any]:
+    payload = {
+        field: config.get(
+            field
+        )
+        for field in CONFIG_FIELDS
+    }
+
+    if not semantic_normalization:
+        return payload
+
+    return {
+        key: _normalize_identity_number(
+            value
+        )
+        for key, value
+        in payload.items()
+    }
+
+
+def _canonical_trade2_overrides(
+    config: dict[str, Any],
+    *,
+    semantic_normalization: bool,
+) -> dict[str, Any]:
+    raw = {
+        field: config[
+            field
+        ]
+        for field
+        in TRADE2_OVERRIDE_FIELDS
+        if field in config
+    }
+
+    normalized = (
+        normalize_trade2_overrides(
+            raw
+        )
+    )
+
+    if not semantic_normalization:
+        return normalized
+
+    return {
+        key: _normalize_identity_number(
+            value
+        )
+        for key, value
+        in normalized.items()
+    }
+
+
+def canonical_config_document(
+    config: dict[str, Any],
+    *,
+    semantic_normalization: bool,
+) -> dict[str, Any]:
+    trade1 = (
+        _canonical_trade1_config(
+            config,
+            semantic_normalization=(
+                semantic_normalization
+            ),
+        )
+    )
+
+    trade2_overrides = (
+        _canonical_trade2_overrides(
+            config,
+            semantic_normalization=(
+                semantic_normalization
+            ),
+        )
+    )
+
+    control = (
+        trade2_control_from_row(
+            config
+        )
+    )
+
+    return {
+        "trade1": trade1,
+        "trade2": {
+            "enabled": (
+                control[
+                    "trade2_enabled"
+                ]
+            ),
+            "management_mode": (
+                control[
+                    "trade2_management_mode"
+                ]
+            ),
+            "legacy_semantics": (
+                control[
+                    "legacy_semantics"
+                ]
+            ),
+            "overrides": (
+                trade2_overrides
+            ),
+        },
+    }
+
+
+def canonical_config_json(
+    config: dict[str, Any],
+    *,
+    semantic_normalization: bool,
+) -> str:
+    return _canonical_json(
+        canonical_config_document(
+            config,
+            semantic_normalization=(
+                semantic_normalization
+            ),
+        )
+    )
+
+
+def config_hashes_from_canonical_json(
+    value: str,
+) -> dict[str, Any]:
+    try:
+        document = json.loads(
+            value
+        )
+    except Exception as exc:
+        raise ValueError(
+            "Invalid canonical_config_json."
+        ) from exc
+
+    if not isinstance(
+        document,
+        dict,
+    ):
+        raise ValueError(
+            "canonical_config_json must "
+            "contain a JSON object."
+        )
+
+    canonical = _canonical_json(
+        document
+    )
+
+    if canonical != value:
+        raise ValueError(
+            "canonical_config_json is not "
+            "canonically serialized."
+        )
+
+    trade1 = document.get(
+        "trade1"
+    )
+
+    trade2 = document.get(
+        "trade2"
+    )
+
+    if not isinstance(
+        trade1,
+        dict,
+    ):
+        raise ValueError(
+            "canonical_config_json is "
+            "missing trade1."
+        )
+
+    if not isinstance(
+        trade2,
+        dict,
+    ):
+        raise ValueError(
+            "canonical_config_json is "
+            "missing trade2."
+        )
+
+    missing_trade1 = [
+        field
+        for field in CONFIG_FIELDS
+        if field not in trade1
+    ]
+
+    if missing_trade1:
+        raise ValueError(
+            "canonical_config_json trade1 "
+            "is incomplete: "
+            + ", ".join(
+                missing_trade1
+            )
+        )
+
+    overrides = (
+        trade2.get(
+            "overrides"
+        )
+        or {}
+    )
+
+    if not isinstance(
+        overrides,
+        dict,
+    ):
+        raise ValueError(
+            "canonical_config_json trade2 "
+            "overrides must be an object."
+        )
+
+    overrides = (
+        normalize_trade2_overrides(
+            overrides
+        )
+    )
+
+    legacy_semantics = bool(
+        trade2.get(
+            "legacy_semantics"
+        )
+    )
+
+    if legacy_semantics:
+        trade2_enabled = None
+        trade2_management_mode = None
+
+    else:
+        trade2_enabled = (
+            trade2.get(
+                "enabled"
+            )
+        )
+
+        trade2_management_mode = (
+            trade2.get(
+                "management_mode"
+            )
+        )
+
+    trade1_hash = (
+        config_sha256(
+            trade1
+        )
+    )
+
+    trade1_management = (
+        _management_config_from_config(
+            trade1
+        )
+    )
+
+    effective_trade2 = (
+        resolve_trade2_management_config(
+            trade1_config=(
+                trade1_management
+            ),
+            overrides=(
+                overrides
+            ),
+            validate_effective=False,
+        )
+    )
+
+    override_hash = (
+        trade2_override_sha256(
+            overrides
+        )
+    )
+
+    effective_hash = (
+        management_config_sha256(
+            effective_trade2
+        )
+    )
+
+    global_hash = (
+        _global_config_sha256(
+            trade1_config=trade1,
+            trade2_overrides=(
+                overrides
+            ),
+            trade2_enabled=(
+                trade2_enabled
+            ),
+            trade2_management_mode=(
+                trade2_management_mode
+            ),
+        )
+    )
+
+    return {
+        "canonical_config_json": (
+            canonical
+        ),
+        "document": document,
+        "trade1_config_sha256": (
+            trade1_hash
+        ),
+        "trade2_override_sha256": (
+            override_hash
+        ),
+        (
+            "trade2_effective_config_sha256"
+        ): effective_hash,
+        "config_sha256": (
+            global_hash
+        ),
+    }
 
 
 def _management_config_from_config(
@@ -340,9 +715,44 @@ def _global_config_sha256(
     )
 
 
+def _legacy_global_config_sha256(
+    *,
+    trade1_config: dict[str, Any],
+    trade2_overrides: dict[str, Any],
+    trade2_enabled: bool | None = None,
+    trade2_management_mode: str | None = None,
+) -> str:
+    """
+    Exact historical V1 global configuration identity.
+
+    This wrapper exists to make legacy lookup explicit.
+    It must never apply CANONICAL_V2 semantic normalization.
+    """
+    return _global_config_sha256(
+        trade1_config=trade1_config,
+        trade2_overrides=trade2_overrides,
+        trade2_enabled=trade2_enabled,
+        trade2_management_mode=(
+            trade2_management_mode
+        ),
+    )
+
+
 def config_sha256(
     config: dict[str, Any],
 ) -> str:
+    """
+    Historical V1 Trade 1 configuration identity.
+
+    IMPORTANT:
+    This function is intentionally byte-semantic with
+    the pre-CANONICAL_V2 contract.
+
+    It must NOT perform semantic numeric normalization.
+
+    Historical identities such as EXP-000001..EXP-000047
+    depend on this exact behavior.
+    """
     canonical = {
         field: config.get(field)
         for field in CONFIG_FIELDS
@@ -1041,8 +1451,8 @@ def assign_experiment_ids(
             if field in config
         }
 
-        config_hash = (
-            _global_config_sha256(
+        legacy_config_hash = (
+            _legacy_global_config_sha256(
                 trade1_config=(
                     trade1_config
                 ),
@@ -1064,16 +1474,47 @@ def assign_experiment_ids(
 
         existing_id = (
             existing_hash_map.get(
-                config_hash
+                legacy_config_hash
             )
         )
 
-        if existing_id is None:
+        if existing_id is not None:
+            config_hash = (
+                legacy_config_hash
+            )
+
+        else:
+            canonical_json_value = (
+                canonical_config_json(
+                    config,
+                    semantic_normalization=True,
+                )
+            )
+
+            canonical_hashes = (
+                config_hashes_from_canonical_json(
+                    canonical_json_value
+                )
+            )
+
+            config_hash = str(
+                canonical_hashes[
+                    "config_sha256"
+                ]
+            )
+
             existing_id = (
-                assigned_hashes.get(
+                existing_hash_map.get(
                     config_hash
                 )
             )
+
+            if existing_id is None:
+                existing_id = (
+                    assigned_hashes.get(
+                        config_hash
+                    )
+                )
 
         if existing_id:
             experiment_id = (
@@ -1352,6 +1793,130 @@ def build_experiment_rows(
                 definition_hash
             )
 
+        raw_canonical_json = (
+            canonical_config_json(
+                config,
+                semantic_normalization=False,
+            )
+        )
+
+        raw_identity = (
+            config_hashes_from_canonical_json(
+                raw_canonical_json
+            )
+        )
+
+        semantic_canonical_json = (
+            canonical_config_json(
+                config,
+                semantic_normalization=True,
+            )
+        )
+
+        semantic_identity = (
+            config_hashes_from_canonical_json(
+                semantic_canonical_json
+            )
+        )
+
+        historical_canonical = (
+            historical_identity.get(
+                "canonical_config_json"
+            )
+            if historical_identity
+            is not None
+            else None
+        )
+
+        historical_identity_version = (
+            historical_identity.get(
+                "config_identity_version"
+            )
+            if historical_identity
+            is not None
+            else None
+        )
+
+        if historical_canonical:
+            identity_json = str(
+                historical_canonical
+            )
+
+            identity_hashes = (
+                config_hashes_from_canonical_json(
+                    identity_json
+                )
+            )
+
+            identity_version = (
+                str(
+                    historical_identity_version
+                    or (
+                        CONFIG_IDENTITY_VERSION_LEGACY
+                    )
+                )
+            )
+
+        elif (
+            str(
+                raw_identity[
+                    "config_sha256"
+                ]
+            )
+            == str(
+                config_hash
+            )
+            and historical_identity
+            is not None
+        ):
+            #
+            # Exact historical representation
+            # recovered BEFORE Parquet coercion.
+            #
+            # EXP-000047 follows this path.
+            #
+            identity_json = (
+                raw_canonical_json
+            )
+
+            identity_hashes = (
+                raw_identity
+            )
+
+            identity_version = (
+                CONFIG_IDENTITY_VERSION_LEGACY
+            )
+
+        else:
+            identity_json = (
+                semantic_canonical_json
+            )
+
+            identity_hashes = (
+                semantic_identity
+            )
+
+            identity_version = (
+                CONFIG_IDENTITY_VERSION_CANONICAL
+            )
+
+        if (
+            str(
+                identity_hashes[
+                    "config_sha256"
+                ]
+            )
+            != str(
+                config_hash
+            )
+        ):
+            raise RuntimeError(
+                "Canonical configuration "
+                "identity does not match "
+                f"assigned config_sha256 for "
+                f"{experiment_id}."
+            )
+
         row = {
             "experiment_id": (
                 experiment_id
@@ -1367,6 +1932,12 @@ def build_experiment_rows(
             ),
             "config_sha256": (
                 config_hash
+            ),
+            "config_identity_version": (
+                identity_version
+            ),
+            "canonical_config_json": (
+                identity_json
             ),
             "created_at": (
                 row_created_at
@@ -1424,21 +1995,21 @@ def build_experiment_rows(
 
         row[
             "trade1_config_sha256"
-        ] = config_sha256(
-            trade1_config
-        )
+        ] = identity_hashes[
+            "trade1_config_sha256"
+        ]
 
         row[
             "trade2_override_sha256"
-        ] = trade2_override_sha256(
-            normalized_trade2
-        )
+        ] = identity_hashes[
+            "trade2_override_sha256"
+        ]
 
         row[
             "trade2_effective_config_sha256"
-        ] = management_config_sha256(
-            effective_trade2
-        )
+        ] = identity_hashes[
+            "trade2_effective_config_sha256"
+        ]
 
         row[
             "trade2_has_explicit_overrides"

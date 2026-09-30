@@ -778,8 +778,22 @@ def test_create_research(
     )
 
     assert (
-        definition["status"]
+        "status"
+        not in definition
+    )
+
+    assert (
+        definition[
+            "definition_status"
+        ]
         == "CREATED"
+    )
+
+    assert (
+        definition[
+            "definition_schema_version"
+        ]
+        == workspace.RESEARCH_DEFINITION_SCHEMA_VERSION
     )
 
     assert (
@@ -1383,3 +1397,364 @@ def test_research_definition_file_contains_hash(
             "research_definition_sha256"
         ]
     )
+
+# ============================================================
+# Stage 22 final closure — Research status contract
+# ============================================================
+
+
+def test_new_research_definition_has_explicit_definition_status(
+    isolated_workspace,
+):
+    created = workspace.create_research(
+        base_definition()
+    )
+
+    research_id = created[
+        "research_id"
+    ]
+
+    definition = (
+        workspace.load_research_definition(
+            research_id
+        )
+    )
+
+    manifest = (
+        workspace.load_research_manifest(
+            research_id
+        )
+    )
+
+    assert (
+        "status"
+        not in definition
+    )
+
+    assert (
+        definition[
+            "definition_status"
+        ]
+        == "CREATED"
+    )
+
+    assert (
+        definition[
+            "definition_schema_version"
+        ]
+        == workspace.RESEARCH_DEFINITION_SCHEMA_VERSION
+    )
+
+    assert (
+        manifest[
+            "status"
+        ]
+        == "CREATED"
+    )
+
+
+def test_definition_status_is_immutable_when_run_status_changes(
+    isolated_workspace,
+):
+    created = workspace.create_research(
+        base_definition()
+    )
+
+    research_id = created[
+        "research_id"
+    ]
+
+    definition_path = Path(
+        created[
+            "definition_path"
+        ]
+    )
+
+    before = (
+        definition_path
+        .read_bytes()
+    )
+
+    workspace.update_run_manifest(
+        research_id,
+        status="RUNNING",
+        current_stage="PREPARING",
+    )
+
+    workspace.update_run_manifest(
+        research_id,
+        status="COMPLETED",
+        current_stage="COMPLETED",
+    )
+
+    after = (
+        definition_path
+        .read_bytes()
+    )
+
+    definition = (
+        workspace.load_research_definition(
+            research_id
+        )
+    )
+
+    assert before == after
+
+    assert (
+        definition[
+            "definition_status"
+        ]
+        == "CREATED"
+    )
+
+
+def test_run_manifest_status_evolves_created_running_completed(
+    isolated_workspace,
+):
+    created = workspace.create_research(
+        base_definition()
+    )
+
+    research_id = created[
+        "research_id"
+    ]
+
+    initial = (
+        workspace.load_research_manifest(
+            research_id
+        )
+    )
+
+    assert (
+        initial[
+            "status"
+        ]
+        == "CREATED"
+    )
+
+    running = (
+        workspace.update_run_manifest(
+            research_id,
+            status="RUNNING",
+            current_stage="PREPARING",
+        )
+    )
+
+    assert (
+        running[
+            "status"
+        ]
+        == "RUNNING"
+    )
+
+    completed = (
+        workspace.update_run_manifest(
+            research_id,
+            status="COMPLETED",
+            current_stage="COMPLETED",
+        )
+    )
+
+    assert (
+        completed[
+            "status"
+        ]
+        == "COMPLETED"
+    )
+
+    definition = (
+        workspace.load_research_definition(
+            research_id
+        )
+    )
+
+    assert (
+        definition[
+            "definition_status"
+        ]
+        == "CREATED"
+    )
+
+
+def test_run_manifest_status_evolves_created_running_failed(
+    isolated_workspace,
+):
+    created = workspace.create_research(
+        base_definition()
+    )
+
+    research_id = created[
+        "research_id"
+    ]
+
+    initial = (
+        workspace.load_research_manifest(
+            research_id
+        )
+    )
+
+    assert (
+        initial[
+            "status"
+        ]
+        == "CREATED"
+    )
+
+    workspace.update_run_manifest(
+        research_id,
+        status="RUNNING",
+        current_stage="PREPARING",
+    )
+
+    failed = (
+        workspace.update_run_manifest(
+            research_id,
+            status="FAILED",
+            current_stage="FAILED",
+            error_type="RuntimeError",
+            error_message="test failure",
+        )
+    )
+
+    assert (
+        failed[
+            "status"
+        ]
+        == "FAILED"
+    )
+
+    definition = (
+        workspace.load_research_definition(
+            research_id
+        )
+    )
+
+    assert (
+        definition[
+            "definition_status"
+        ]
+        == "CREATED"
+    )
+
+
+def test_workspace_history_uses_run_manifest_status(
+    isolated_workspace,
+):
+    created = workspace.create_research(
+        base_definition()
+    )
+
+    research_id = created[
+        "research_id"
+    ]
+
+    workspace.update_run_manifest(
+        research_id,
+        status="COMPLETED",
+        current_stage="COMPLETED",
+    )
+
+    rows = workspace.list_researches()
+
+    row = next(
+        item
+        for item in rows
+        if (
+            item[
+                "research_id"
+            ]
+            == research_id
+        )
+    )
+
+    assert (
+        row[
+            "status"
+        ]
+        == "COMPLETED"
+    )
+
+    definition = (
+        workspace.load_research_definition(
+            research_id
+        )
+    )
+
+    assert (
+        definition[
+            "definition_status"
+        ]
+        == "CREATED"
+    )
+
+
+def test_legacy_research_definition_with_status_remains_readable(
+    isolated_workspace,
+):
+    research_id = (
+        "RES-LEGACY-STATUS-CONTRACT"
+    )
+
+    paths = workspace.research_paths(
+        research_id
+    )
+
+    paths[
+        "root"
+    ].mkdir(
+        parents=True,
+        exist_ok=False,
+    )
+
+    legacy = {
+        "research_id": research_id,
+        "strategy": "TRADE_1",
+        "status": "CREATED",
+        "created_at": (
+            "2026-01-01T00:00:00+00:00"
+        ),
+    }
+
+    paths[
+        "definition"
+    ].write_text(
+        json.dumps(
+            legacy,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    before = (
+        paths[
+            "definition"
+        ]
+        .read_bytes()
+    )
+
+    loaded = (
+        workspace.load_research_definition(
+            research_id
+        )
+    )
+
+    after = (
+        paths[
+            "definition"
+        ]
+        .read_bytes()
+    )
+
+    assert (
+        loaded[
+            "status"
+        ]
+        == "CREATED"
+    )
+
+    assert (
+        "definition_status"
+        not in loaded
+    )
+
+    assert before == after

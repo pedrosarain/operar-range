@@ -1258,3 +1258,242 @@ def test_unknown_trajectory_session():
                 trajectories
             ),
         )
+
+
+# ============================================================
+# Stage 22 — canonical configuration lineage
+# ============================================================
+
+
+def test_stage22_lineage_uses_persisted_canonical_config_after_parquet_roundtrip(
+    tmp_path,
+):
+    import pyarrow.parquet as pq
+
+    import operar_range.research_lineage_adapter as lineage
+
+    from operar_range.experiment_generator import (
+        GENERATED_EXPERIMENT_SCHEMA,
+        build_experiment_rows,
+        config_hashes_from_canonical_json,
+    )
+
+    base_config = {
+        "stop_points": None,
+        "partial_1_points": None,
+        "partial_1_pct": None,
+        "partial_2_points": None,
+        "partial_2_pct": None,
+        "partial_3_points": None,
+        "partial_3_pct": None,
+        "break_even_enabled": True,
+        "break_even_after_partial": 1,
+        "runner_enabled": False,
+        "runner_pct": None,
+        "runner_rule": None,
+        "final_target_points": 400,
+    }
+
+    rows = build_experiment_rows(
+        family="STAGE22_CANONICAL_LINEAGE",
+        generation=1,
+        created_at=(
+            "2026-09-30T03:00:00+00:00"
+        ),
+        rules_version=(
+            "ADR-004+STAGE10"
+        ),
+        base_config=base_config,
+        parameter_definition={
+            "stop_points": {
+                "values": [
+                    161.0,
+                ]
+            },
+            "partial_1_points": {
+                "values": [
+                    125,
+                ]
+            },
+            "partial_1_pct": {
+                "values": [
+                    70,
+                ]
+            },
+        },
+        trade2_enabled=False,
+        trade2_management_mode="INHERIT",
+    )
+
+    assert len(
+        rows
+    ) == 1
+
+    generated_path = (
+        tmp_path
+        / "generated.parquet"
+    )
+
+    pq.write_table(
+        pa.Table.from_pylist(
+            rows,
+            schema=(
+                GENERATED_EXPERIMENT_SCHEMA
+            ),
+        ),
+        generated_path,
+    )
+
+    reloaded = (
+        pq.read_table(
+            generated_path
+        )
+        .to_pylist()
+    )
+
+    assert len(
+        reloaded
+    ) == 1
+
+    row = reloaded[
+        0
+    ]
+
+    #
+    # Individual numeric columns have passed
+    # through Arrow/Parquet coercion.
+    #
+    assert isinstance(
+        row[
+            "stop_points"
+        ],
+        float,
+    )
+
+    assert isinstance(
+        row[
+            "partial_1_points"
+        ],
+        float,
+    )
+
+    #
+    # Identity source survives unchanged.
+    #
+    canonical_before = rows[
+        0
+    ][
+        "canonical_config_json"
+    ]
+
+    canonical_after = row[
+        "canonical_config_json"
+    ]
+
+    assert (
+        canonical_before
+        == canonical_after
+    )
+
+    hashes = (
+        config_hashes_from_canonical_json(
+            canonical_after
+        )
+    )
+
+    assert (
+        hashes[
+            "config_sha256"
+        ]
+        == row[
+            "config_sha256"
+        ]
+    )
+
+    assert (
+        hashes[
+            "trade1_config_sha256"
+        ]
+        == row[
+            "trade1_config_sha256"
+        ]
+    )
+
+    payload = (
+        lineage._config_payload(
+            row
+        )
+    )
+
+    assert (
+        payload[
+            "canonical_config_json"
+        ]
+        == canonical_after
+    )
+
+    assert (
+        payload[
+            "trade1_config_sha256"
+        ]
+        == row[
+            "trade1_config_sha256"
+        ]
+    )
+
+    assert (
+        payload[
+            "trade2_override_sha256"
+        ]
+        == row[
+            "trade2_override_sha256"
+        ]
+    )
+
+    assert (
+        payload[
+            "trade2_effective_config_sha256"
+        ]
+        == row[
+            "trade2_effective_config_sha256"
+        ]
+    )
+
+
+def test_stage22_lineage_legacy_fallback_remains_available():
+    import operar_range.research_lineage_adapter as lineage
+
+    row = {
+        "experiment_id": "EXP-LEGACY-TEST",
+        "stop_points": 170.0,
+        "partial_1_points": 125.0,
+        "partial_1_pct": 70.0,
+        "partial_2_points": None,
+        "partial_2_pct": None,
+        "partial_3_points": None,
+        "partial_3_pct": None,
+        "break_even_enabled": True,
+        "break_even_after_partial": 1,
+        "runner_enabled": False,
+        "runner_pct": None,
+        "runner_rule": None,
+        "final_target_points": 400.0,
+    }
+
+    payload = (
+        lineage._config_payload(
+            row
+        )
+    )
+
+    assert (
+        "canonical_config_json"
+        not in payload
+    )
+
+    assert (
+        payload[
+            "stop_points"
+        ]
+        == 170.0
+    )

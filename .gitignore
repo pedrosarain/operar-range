@@ -8,3 +8,6 @@ operar_range_backup_*.zip
 data/datasets/
 
 data/research/workspace/
+
+# Canonical operational state; persisted locally but not versioned as source code.
+data/research/experiment_registry.parquet

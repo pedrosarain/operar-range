@@ -72,6 +72,10 @@ WORKSPACE_VERSION = (
     "research-workspace-v1"
 )
 
+RESEARCH_DEFINITION_SCHEMA_VERSION = (
+    "research-definition-v2"
+)
+
 PROJECT_ROOT = (
     Path(__file__)
     .resolve()
@@ -477,7 +481,22 @@ def _definition_identity(
     excluded = {
         "research_id",
         "created_at",
+
+        #
+        # Legacy Research Definitions used the generic
+        # `status` field for creation-time metadata.
+        # It remains excluded for backward-compatible
+        # identity semantics.
+        #
         "status",
+
+        #
+        # Stage 22 final contract:
+        # these fields describe the Definition artifact,
+        # not the operational Research state.
+        #
+        "definition_status",
+        "definition_schema_version",
     }
 
     return {
@@ -619,8 +638,14 @@ def create_research(
     ] = created_at
 
     payload[
-        "status"
+        "definition_status"
     ] = "CREATED"
+
+    payload[
+        "definition_schema_version"
+    ] = (
+        RESEARCH_DEFINITION_SCHEMA_VERSION
+    )
 
     payload[
         "research_definition_sha256"

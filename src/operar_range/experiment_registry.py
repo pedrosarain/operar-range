@@ -22,6 +22,26 @@ REGISTRY_SCHEMA = pa.schema(
     [
         ("experiment_id", pa.string()),
         ("config_sha256", pa.string()),
+        (
+            "config_identity_version",
+            pa.string(),
+        ),
+        (
+            "canonical_config_json",
+            pa.string(),
+        ),
+        (
+            "trade1_config_sha256",
+            pa.string(),
+        ),
+        (
+            "trade2_override_sha256",
+            pa.string(),
+        ),
+        (
+            "trade2_effective_config_sha256",
+            pa.string(),
+        ),
         ("family", pa.string()),
         ("generation", pa.int64()),
         ("experiment_name", pa.string()),
@@ -198,6 +218,33 @@ def _registry_row_from_source(
     return {
         "experiment_id": experiment_id,
         "config_sha256": config_hash,
+        "config_identity_version": (
+            row.get(
+                "config_identity_version"
+            )
+        ),
+        "canonical_config_json": (
+            row.get(
+                "canonical_config_json"
+            )
+        ),
+        "trade1_config_sha256": (
+            row.get(
+                "trade1_config_sha256"
+            )
+        ),
+        "trade2_override_sha256": (
+            row.get(
+                "trade2_override_sha256"
+            )
+        ),
+        (
+            "trade2_effective_config_sha256"
+        ): (
+            row.get(
+                "trade2_effective_config_sha256"
+            )
+        ),
         "family": family,
         "generation": generation,
         "experiment_name": (
@@ -231,6 +278,11 @@ def _registry_row_from_source(
 IMMUTABLE_FIELDS = (
     "experiment_id",
     "config_sha256",
+    "config_identity_version",
+    "canonical_config_json",
+    "trade1_config_sha256",
+    "trade2_override_sha256",
+    "trade2_effective_config_sha256",
     "family",
     "generation",
     "experiment_name",
@@ -260,6 +312,58 @@ def _assert_same_identity(
                 f"{existing['experiment_id']}: "
                 f"{field}: {old!r} != {new!r}"
             )
+
+
+IDENTITY_ENRICHMENT_FIELDS = (
+    "config_identity_version",
+    "canonical_config_json",
+    "trade1_config_sha256",
+    "trade2_override_sha256",
+    "trade2_effective_config_sha256",
+)
+
+
+def _enrich_missing_identity_metadata(
+    existing: dict[str, Any],
+    incoming: dict[str, Any],
+) -> bool:
+    changed = False
+
+    for field in (
+        IDENTITY_ENRICHMENT_FIELDS
+    ):
+        old = existing.get(
+            field
+        )
+
+        new = incoming.get(
+            field
+        )
+
+        if (
+            old is None
+            and new is not None
+        ):
+            existing[
+                field
+            ] = new
+
+            changed = True
+
+        elif (
+            old is not None
+            and new is not None
+            and old != new
+        ):
+            raise RuntimeError(
+                "Historical experiment "
+                "identity metadata mutation "
+                f"detected for "
+                f"{existing['experiment_id']}: "
+                f"{field}."
+            )
+
+    return changed
 
 
 def _validate_unique_registry(
@@ -434,6 +538,12 @@ def migrate_registry(
                     existing_id_row,
                     incoming,
                 )
+
+                _enrich_missing_identity_metadata(
+                    existing_id_row,
+                    incoming,
+                )
+
                 continue
 
             existing_hash_row = (
