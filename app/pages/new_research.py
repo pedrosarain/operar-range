@@ -19,6 +19,11 @@ from operar_range.quantitative_models import (
     US_OPEN_BREAKOUT_V1_ID,
     default_quantitative_model,
 )
+from operar_range.path_research_parameters import (
+    DEFAULT_STOP_VALUES,
+    DEFAULT_TARGET_VALUES,
+    resolve_path_grid,
+)
 from operar_range.research_workspace import (
     DEFAULT_COMPOSITE_WEIGHTS,
     create_research_stage22,
@@ -65,6 +70,757 @@ def _int_or_none(
     return int(
         value
     )
+
+
+def _parse_path_values_text(
+    value: str,
+    *,
+    name: str,
+) -> list[int]:
+    raw = str(
+        value
+        or ""
+    ).strip()
+
+    if not raw:
+        raise ValueError(
+            f"{name}: informe ao menos um valor."
+        )
+
+    values: list[int] = []
+
+    for item in raw.split(","):
+        item = item.strip()
+
+        if not item:
+            continue
+
+        number = float(
+            item
+        )
+
+        if not number.is_integer():
+            raise ValueError(
+                f"{name}: somente pontos inteiros "
+                "são suportados."
+            )
+
+        values.append(
+            int(
+                number
+            )
+        )
+
+    if not values:
+        raise ValueError(
+            f"{name}: informe ao menos um valor."
+        )
+
+    return values
+
+
+def _path_parameters_from_state(
+) -> dict[str, Any] | None:
+    use_historical = bool(
+        st.session_state.get(
+            "stage28_use_historical_grid",
+            True,
+        )
+    )
+
+    trade2_override = bool(
+        st.session_state.get(
+            "stage28_trade2_override",
+            False,
+        )
+    )
+
+    if (
+        use_historical
+        and not trade2_override
+    ):
+        #
+        # Ausência de path_parameters mantém
+        # exatamente o contrato histórico.
+        #
+        return None
+
+    kwargs: dict[str, Any] = {}
+
+    if not use_historical:
+        target_mode = str(
+            st.session_state.get(
+                "stage28_target_mode",
+                "Lista",
+            )
+        )
+
+        stop_mode = str(
+            st.session_state.get(
+                "stage28_stop_mode",
+                "Lista",
+            )
+        )
+
+        if target_mode == "Lista":
+            kwargs[
+                "target_values"
+            ] = _parse_path_values_text(
+                st.session_state.get(
+                    "stage28_target_values_text",
+                    ",".join(
+                        str(value)
+                        for value
+                        in DEFAULT_TARGET_VALUES
+                    ),
+                ),
+                name="Targets",
+            )
+
+        elif target_mode == "Range":
+            kwargs[
+                "target_start"
+            ] = int(
+                st.session_state.get(
+                    "stage28_target_start",
+                    100,
+                )
+            )
+            kwargs[
+                "target_end"
+            ] = int(
+                st.session_state.get(
+                    "stage28_target_end",
+                    1000,
+                )
+            )
+            kwargs[
+                "target_step"
+            ] = int(
+                st.session_state.get(
+                    "stage28_target_step",
+                    25,
+                )
+            )
+
+        else:
+            raise ValueError(
+                "Modo de Targets inválido."
+            )
+
+        if stop_mode == "Lista":
+            kwargs[
+                "stop_values"
+            ] = _parse_path_values_text(
+                st.session_state.get(
+                    "stage28_stop_values_text",
+                    ",".join(
+                        str(value)
+                        for value
+                        in DEFAULT_STOP_VALUES
+                    ),
+                ),
+                name="Stops",
+            )
+
+        elif stop_mode == "Range":
+            kwargs[
+                "stop_start"
+            ] = int(
+                st.session_state.get(
+                    "stage28_stop_start",
+                    100,
+                )
+            )
+            kwargs[
+                "stop_end"
+            ] = int(
+                st.session_state.get(
+                    "stage28_stop_end",
+                    200,
+                )
+            )
+            kwargs[
+                "stop_step"
+            ] = int(
+                st.session_state.get(
+                    "stage28_stop_step",
+                    25,
+                )
+            )
+
+        else:
+            raise ValueError(
+                "Modo de Stops inválido."
+            )
+
+    if trade2_override:
+        trade2_target_mode = str(
+            st.session_state.get(
+                "stage28_trade2_target_mode",
+                "Lista",
+            )
+        )
+
+        trade2_stop_mode = str(
+            st.session_state.get(
+                "stage28_trade2_stop_mode",
+                "Lista",
+            )
+        )
+
+        if trade2_target_mode == "Lista":
+            kwargs[
+                "trade2_target_values"
+            ] = _parse_path_values_text(
+                st.session_state.get(
+                    "stage28_trade2_target_values_text",
+                    ",".join(
+                        str(value)
+                        for value
+                        in DEFAULT_TARGET_VALUES
+                    ),
+                ),
+                name="Trade 2 Targets",
+            )
+
+        elif trade2_target_mode == "Range":
+            kwargs[
+                "trade2_target_start"
+            ] = int(
+                st.session_state.get(
+                    "stage28_trade2_target_start",
+                    100,
+                )
+            )
+            kwargs[
+                "trade2_target_end"
+            ] = int(
+                st.session_state.get(
+                    "stage28_trade2_target_end",
+                    1000,
+                )
+            )
+            kwargs[
+                "trade2_target_step"
+            ] = int(
+                st.session_state.get(
+                    "stage28_trade2_target_step",
+                    25,
+                )
+            )
+
+        else:
+            raise ValueError(
+                "Modo de Targets do Trade 2 inválido."
+            )
+
+        if trade2_stop_mode == "Lista":
+            kwargs[
+                "trade2_stop_values"
+            ] = _parse_path_values_text(
+                st.session_state.get(
+                    "stage28_trade2_stop_values_text",
+                    ",".join(
+                        str(value)
+                        for value
+                        in DEFAULT_STOP_VALUES
+                    ),
+                ),
+                name="Trade 2 Stops",
+            )
+
+        elif trade2_stop_mode == "Range":
+            kwargs[
+                "trade2_stop_start"
+            ] = int(
+                st.session_state.get(
+                    "stage28_trade2_stop_start",
+                    100,
+                )
+            )
+            kwargs[
+                "trade2_stop_end"
+            ] = int(
+                st.session_state.get(
+                    "stage28_trade2_stop_end",
+                    200,
+                )
+            )
+            kwargs[
+                "trade2_stop_step"
+            ] = int(
+                st.session_state.get(
+                    "stage28_trade2_stop_step",
+                    25,
+                )
+            )
+
+        else:
+            raise ValueError(
+                "Modo de Stops do Trade 2 inválido."
+            )
+
+    #
+    # Validação canônica antecipada.
+    #
+    resolve_path_grid(
+        **kwargs
+    )
+
+    return kwargs
+
+
+def _render_path_grid_workspace() -> None:
+    st.markdown(
+        "### Path Research"
+    )
+
+    st.caption(
+        (
+            "Define apenas o grid de análise "
+            "de trajetória. Não altera a "
+            "estratégia operacional."
+        )
+    )
+
+    historical = st.checkbox(
+        "Usar grid histórico da Stage 25",
+        value=bool(
+            st.session_state.get(
+                "stage28_use_historical_grid",
+                True,
+            )
+        ),
+        key="stage28_use_historical_grid",
+    )
+
+    if not historical:
+        left, right = st.columns(
+            2
+        )
+
+        with left:
+            target_mode = st.radio(
+                "Targets — modo",
+                [
+                    "Lista",
+                    "Range",
+                ],
+                horizontal=True,
+                key="stage28_target_mode",
+            )
+
+            if target_mode == "Lista":
+                st.text_input(
+                    "Targets — valores",
+                    value=st.session_state.get(
+                        "stage28_target_values_text",
+                        ",".join(
+                            str(value)
+                            for value
+                            in DEFAULT_TARGET_VALUES
+                        ),
+                    ),
+                    key=(
+                        "stage28_target_values_text"
+                    ),
+                    help=(
+                        "Exemplo: "
+                        "100,150,200,285,400"
+                    ),
+                )
+
+            else:
+                a, b, c = st.columns(
+                    3
+                )
+
+                with a:
+                    st.number_input(
+                        "Target início",
+                        min_value=1,
+                        value=int(
+                            st.session_state.get(
+                                "stage28_target_start",
+                                100,
+                            )
+                        ),
+                        step=1,
+                        key="stage28_target_start",
+                    )
+
+                with b:
+                    st.number_input(
+                        "Target fim",
+                        min_value=1,
+                        value=int(
+                            st.session_state.get(
+                                "stage28_target_end",
+                                500,
+                            )
+                        ),
+                        step=1,
+                        key="stage28_target_end",
+                    )
+
+                with c:
+                    st.number_input(
+                        "Target passo",
+                        min_value=1,
+                        value=int(
+                            st.session_state.get(
+                                "stage28_target_step",
+                                25,
+                            )
+                        ),
+                        step=1,
+                        key="stage28_target_step",
+                    )
+
+        with right:
+            stop_mode = st.radio(
+                "Stops — modo",
+                [
+                    "Lista",
+                    "Range",
+                ],
+                horizontal=True,
+                key="stage28_stop_mode",
+            )
+
+            if stop_mode == "Lista":
+                st.text_input(
+                    "Stops — valores",
+                    value=st.session_state.get(
+                        "stage28_stop_values_text",
+                        ",".join(
+                            str(value)
+                            for value
+                            in DEFAULT_STOP_VALUES
+                        ),
+                    ),
+                    key=(
+                        "stage28_stop_values_text"
+                    ),
+                    help=(
+                        "Exemplo: "
+                        "100,130,165,190"
+                    ),
+                )
+
+            else:
+                a, b, c = st.columns(
+                    3
+                )
+
+                with a:
+                    st.number_input(
+                        "Stop início",
+                        min_value=1,
+                        value=int(
+                            st.session_state.get(
+                                "stage28_stop_start",
+                                100,
+                            )
+                        ),
+                        step=1,
+                        key="stage28_stop_start",
+                    )
+
+                with b:
+                    st.number_input(
+                        "Stop fim",
+                        min_value=1,
+                        value=int(
+                            st.session_state.get(
+                                "stage28_stop_end",
+                                250,
+                            )
+                        ),
+                        step=1,
+                        key="stage28_stop_end",
+                    )
+
+                with c:
+                    st.number_input(
+                        "Stop passo",
+                        min_value=1,
+                        value=int(
+                            st.session_state.get(
+                                "stage28_stop_step",
+                                5,
+                            )
+                        ),
+                        step=1,
+                        key="stage28_stop_step",
+                    )
+
+    st.divider()
+
+    trade2_override = st.checkbox(
+        "Usar grid específico no Trade 2",
+        value=bool(
+            st.session_state.get(
+                "stage28_trade2_override",
+                False,
+            )
+        ),
+        key="stage28_trade2_override",
+        help=(
+            "Desmarcado: Trade 2 herda "
+            "integralmente o grid geral."
+        ),
+    )
+
+    if trade2_override:
+        left, right = st.columns(
+            2
+        )
+
+        with left:
+            target_mode = st.radio(
+                "Trade 2 Targets — modo",
+                [
+                    "Lista",
+                    "Range",
+                ],
+                horizontal=True,
+                key=(
+                    "stage28_trade2_target_mode"
+                ),
+            )
+
+            if target_mode == "Lista":
+                st.text_input(
+                    "Trade 2 Targets — valores",
+                    value=st.session_state.get(
+                        "stage28_trade2_target_values_text",
+                        ",".join(
+                            str(value)
+                            for value
+                            in DEFAULT_TARGET_VALUES
+                        ),
+                    ),
+                    key=(
+                        "stage28_trade2_target_values_text"
+                    ),
+                )
+
+            else:
+                a, b, c = st.columns(
+                    3
+                )
+
+                with a:
+                    st.number_input(
+                        "T2 Target início",
+                        min_value=1,
+                        value=int(
+                            st.session_state.get(
+                                "stage28_trade2_target_start",
+                                100,
+                            )
+                        ),
+                        step=1,
+                        key=(
+                            "stage28_trade2_target_start"
+                        ),
+                    )
+
+                with b:
+                    st.number_input(
+                        "T2 Target fim",
+                        min_value=1,
+                        value=int(
+                            st.session_state.get(
+                                "stage28_trade2_target_end",
+                                500,
+                            )
+                        ),
+                        step=1,
+                        key=(
+                            "stage28_trade2_target_end"
+                        ),
+                    )
+
+                with c:
+                    st.number_input(
+                        "T2 Target passo",
+                        min_value=1,
+                        value=int(
+                            st.session_state.get(
+                                "stage28_trade2_target_step",
+                                25,
+                            )
+                        ),
+                        step=1,
+                        key=(
+                            "stage28_trade2_target_step"
+                        ),
+                    )
+
+        with right:
+            stop_mode = st.radio(
+                "Trade 2 Stops — modo",
+                [
+                    "Lista",
+                    "Range",
+                ],
+                horizontal=True,
+                key=(
+                    "stage28_trade2_stop_mode"
+                ),
+            )
+
+            if stop_mode == "Lista":
+                st.text_input(
+                    "Trade 2 Stops — valores",
+                    value=st.session_state.get(
+                        "stage28_trade2_stop_values_text",
+                        ",".join(
+                            str(value)
+                            for value
+                            in DEFAULT_STOP_VALUES
+                        ),
+                    ),
+                    key=(
+                        "stage28_trade2_stop_values_text"
+                    ),
+                )
+
+            else:
+                a, b, c = st.columns(
+                    3
+                )
+
+                with a:
+                    st.number_input(
+                        "T2 Stop início",
+                        min_value=1,
+                        value=int(
+                            st.session_state.get(
+                                "stage28_trade2_stop_start",
+                                100,
+                            )
+                        ),
+                        step=1,
+                        key=(
+                            "stage28_trade2_stop_start"
+                        ),
+                    )
+
+                with b:
+                    st.number_input(
+                        "T2 Stop fim",
+                        min_value=1,
+                        value=int(
+                            st.session_state.get(
+                                "stage28_trade2_stop_end",
+                                200,
+                            )
+                        ),
+                        step=1,
+                        key=(
+                            "stage28_trade2_stop_end"
+                        ),
+                    )
+
+                with c:
+                    st.number_input(
+                        "T2 Stop passo",
+                        min_value=1,
+                        value=int(
+                            st.session_state.get(
+                                "stage28_trade2_stop_step",
+                                25,
+                            )
+                        ),
+                        step=1,
+                        key=(
+                            "stage28_trade2_stop_step"
+                        ),
+                    )
+
+    try:
+        parameters = (
+            _path_parameters_from_state()
+        )
+
+        grid = resolve_path_grid(
+            **(
+                parameters
+                or {}
+            )
+        )
+
+        st.caption(
+            (
+                "Targets: "
+                f"{list(grid.target_values)}"
+            )
+        )
+
+        st.caption(
+            (
+                "Stops: "
+                f"{list(grid.stop_values)}"
+            )
+        )
+
+        st.caption(
+            (
+                "Trade 2 Targets efetivos: "
+                f"{list(grid.trade2_target_values_effective)}"
+                " | "
+                f"{grid.trade2_target_grid_source}"
+            )
+        )
+
+        st.caption(
+            (
+                "Trade 2 Stops efetivos: "
+                f"{list(grid.trade2_stop_values_effective)}"
+                " | "
+                f"{grid.trade2_stop_grid_source}"
+            )
+        )
+
+        metric_cards(
+            [
+                (
+                    "Targets",
+                    format_integer(
+                        grid.target_count
+                    ),
+                ),
+                (
+                    "Stops",
+                    format_integer(
+                        grid.stop_count
+                    ),
+                ),
+                (
+                    "Combinações Trade 1",
+                    format_integer(
+                        grid.trade1_matrix_size
+                    ),
+                ),
+            ],
+            columns=3,
+        )
+
+        st.caption(
+            (
+                "Parameter definition SHA-256: "
+                f"{grid.parameter_definition_sha256}"
+            )
+        )
+
+    except Exception as exc:
+        st.error(
+            f"Grid inválido: {exc}"
+        )
 
 
 def _parameter_definition_from_ui(
@@ -684,6 +1440,18 @@ def _build_definition(
         "composite_weights": dict(
             DEFAULT_COMPOSITE_WEIGHTS
         ),
+        **(
+            {
+                "path_parameters": (
+                    _path_parameters_from_state()
+                )
+            }
+            if (
+                _path_parameters_from_state()
+                is not None
+            )
+            else {}
+        ),
     }
 
 
@@ -1284,6 +2052,12 @@ def _step_three() -> None:
                 "stage185_stop_values"
             ),
         )
+
+    with st.expander(
+        "Path Research",
+        expanded=False,
+    ):
+        _render_path_grid_workspace()
 
     with st.expander(
         "Gestão",

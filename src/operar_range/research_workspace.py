@@ -2154,6 +2154,43 @@ def estimate_research(
         ]
     )
 
+    from operar_range.path_research_parameters import (
+        resolve_path_grid,
+    )
+
+    path_parameters = (
+        definition.get(
+            "path_parameters"
+        )
+        or {}
+    )
+
+    if not isinstance(
+        path_parameters,
+        dict,
+    ):
+        raise ValueError(
+            "path_parameters must be an object."
+        )
+
+    path_grid = resolve_path_grid(
+        **path_parameters,
+        valid_trade1_count=(
+            sessions_total
+            * valid_total
+        ),
+        valid_trade2_count=(
+            sessions_total
+            * valid_total
+            if bool(
+                definition.get(
+                    "trade2_enabled"
+                )
+            )
+            else 0
+        ),
+    )
+
     batch_size = int(
         definition.get(
             "batch_size",
@@ -2212,6 +2249,60 @@ def estimate_research(
         ),
         "constraint_status": (
             "PREVALIDATED_WITH_RULE_ENGINE"
+        ),
+
+        "path_target_count": (
+            path_grid.target_count
+        ),
+        "path_stop_count": (
+            path_grid.stop_count
+        ),
+        "path_trade1_matrix_size": (
+            path_grid.trade1_matrix_size
+        ),
+        "path_trade2_target_count": (
+            path_grid.trade2_target_count
+        ),
+        "path_trade2_stop_count": (
+            path_grid.trade2_stop_count
+        ),
+        "path_trade2_matrix_size": (
+            path_grid.trade2_matrix_size
+        ),
+        "path_estimated_trade1_rows": (
+            path_grid.estimated_trade1_path_rows
+        ),
+        "path_estimated_trade2_rows": (
+            path_grid.estimated_trade2_path_rows
+        ),
+        "path_estimated_rows": (
+            path_grid.estimated_path_rows
+        ),
+        "path_estimate_basis": (
+            "MAX_VALID_SESSION_EXECUTIONS"
+        ),
+        "path_parameter_definition_sha256": (
+            path_grid.parameter_definition_sha256
+        ),
+        "path_target_values": list(
+            path_grid.target_values
+        ),
+        "path_stop_values": list(
+            path_grid.stop_values
+        ),
+        "path_trade2_target_values_effective": list(
+            path_grid
+            .trade2_target_values_effective
+        ),
+        "path_trade2_stop_values_effective": list(
+            path_grid
+            .trade2_stop_values_effective
+        ),
+        "path_trade2_target_grid_source": (
+            path_grid.trade2_target_grid_source
+        ),
+        "path_trade2_stop_grid_source": (
+            path_grid.trade2_stop_grid_source
         ),
     }
 

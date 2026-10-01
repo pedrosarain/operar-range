@@ -91,6 +91,103 @@ def _experiment_ids(
     return []
 
 
+def _path_values(
+    *,
+    research_id: str,
+    experiment_id: str,
+    trade: str,
+) -> tuple[list[int], list[int]]:
+    paths = research_paths(
+        research_id
+    )
+
+    path = (
+        paths[
+            "root"
+        ]
+        / "path_analysis.parquet"
+    )
+
+    if not path.exists():
+        return (
+            [],
+            [],
+        )
+
+    frame = pl.read_parquet(
+        path
+    )
+
+    required = {
+        "experiment_id",
+        "trade",
+        "target_points",
+        "stop_points",
+    }
+
+    if not required.issubset(
+        set(
+            frame.columns
+        )
+    ):
+        return (
+            [],
+            [],
+        )
+
+    filtered = frame.filter(
+        (
+            pl.col(
+                "experiment_id"
+            )
+            == experiment_id
+        )
+        & (
+            pl.col(
+                "trade"
+            )
+            == trade
+        )
+    )
+
+    if filtered.is_empty():
+        return (
+            [],
+            [],
+        )
+
+    targets = sorted(
+        {
+            int(value)
+            for value
+            in filtered[
+                "target_points"
+            ]
+            .drop_nulls()
+            .unique()
+            .to_list()
+        }
+    )
+
+    stops = sorted(
+        {
+            int(value)
+            for value
+            in filtered[
+                "stop_points"
+            ]
+            .drop_nulls()
+            .unique()
+            .to_list()
+        }
+    )
+
+    return (
+        targets,
+        stops,
+    )
+
+
 def _tristate(
     value: str,
 ) -> bool | None:
@@ -171,6 +268,15 @@ def render() -> None:
         ],
     )
 
+    (
+        available_targets,
+        available_stops,
+    ) = _path_values(
+        research_id=research_id,
+        experiment_id=experiment_id,
+        trade=trade,
+    )
+
     direction_choice = (
         st.selectbox(
             "Direction",
@@ -192,19 +298,11 @@ def render() -> None:
                 "Target",
                 [
                     "ANY",
-                    "100",
-                    "125",
-                    "150",
-                    "175",
-                    "200",
-                    "250",
-                    "300",
-                    "350",
-                    "400",
-                    "500",
-                    "600",
-                    "800",
-                    "1000",
+                    *[
+                        str(value)
+                        for value
+                        in available_targets
+                    ],
                 ],
             )
         )
@@ -238,11 +336,11 @@ def render() -> None:
                 "Stop",
                 [
                     "ANY",
-                    "100",
-                    "125",
-                    "150",
-                    "175",
-                    "200",
+                    *[
+                        str(value)
+                        for value
+                        in available_stops
+                    ],
                 ],
             )
         )

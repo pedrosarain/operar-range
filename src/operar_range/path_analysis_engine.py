@@ -8,6 +8,13 @@ import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from operar_range.path_research_parameters import (
+    DEFAULT_STOP_VALUES,
+    DEFAULT_TARGET_VALUES,
+    PATH_PARAMETER_VERSION,
+    historical_default_grid,
+    resolve_path_grid,
+)
 from operar_range.research_workspace import (
     load_research_definition,
     load_research_manifest,
@@ -24,28 +31,17 @@ PATH_ANALYSIS_ARTIFACT_NAME = (
 )
 
 
+#
+# Stage 28:
+# public historical constants remain available,
+# but they now represent only the default grid.
+#
 TARGET_LEVELS = (
-    100,
-    125,
-    150,
-    175,
-    200,
-    250,
-    300,
-    350,
-    400,
-    500,
-    600,
-    800,
-    1000,
+    DEFAULT_TARGET_VALUES
 )
 
 STOP_LEVELS = (
-    100,
-    125,
-    150,
-    175,
-    200,
+    DEFAULT_STOP_VALUES
 )
 
 
@@ -81,6 +77,38 @@ PATH_ANALYSIS_SCHEMA = pa.schema(
         ),
         (
             "path_analysis_version",
+            pa.string(),
+        ),
+        (
+            "path_parameter_version",
+            pa.string(),
+        ),
+        (
+            "target_values",
+            pa.string(),
+        ),
+        (
+            "stop_values",
+            pa.string(),
+        ),
+        (
+            "trade2_target_values_effective",
+            pa.string(),
+        ),
+        (
+            "trade2_stop_values_effective",
+            pa.string(),
+        ),
+        (
+            "trade2_target_grid_source",
+            pa.string(),
+        ),
+        (
+            "trade2_stop_grid_source",
+            pa.string(),
+        ),
+        (
+            "parameter_definition_sha256",
             pa.string(),
         ),
 
@@ -350,6 +378,8 @@ def _scan_trade_path(
     trajectory: pl.DataFrame,
     direction: str,
     entry_price: float,
+    target_values: tuple[int, ...],
+    stop_values: tuple[int, ...],
 ) -> dict[str, Any]:
     first_zero_return: (
         PathEvent | None
@@ -361,7 +391,7 @@ def _scan_trade_path(
     ] = {
         target: None
         for target
-        in TARGET_LEVELS
+        in target_values
     }
 
     stop_events: dict[
@@ -370,7 +400,7 @@ def _scan_trade_path(
     ] = {
         stop: None
         for stop
-        in STOP_LEVELS
+        in stop_values
     }
 
     moved_away_from_zero = False
@@ -406,8 +436,9 @@ def _scan_trade_path(
         )
 
         #
-        # O próprio tick da entrada não conta
-        # como retorno ao zero.
+        # Exact Entry Contract:
+        # the entry tick itself never counts
+        # as first zero return.
         #
         if first_row:
             first_row = False
@@ -425,7 +456,7 @@ def _scan_trade_path(
                     event
                 )
 
-        for target in TARGET_LEVELS:
+        for target in target_values:
             if (
                 target_events[
                     target
@@ -438,7 +469,7 @@ def _scan_trade_path(
                     target
                 ] = event
 
-        for stop in STOP_LEVELS:
+        for stop in stop_values:
             if (
                 stop_events[
                     stop
@@ -452,14 +483,14 @@ def _scan_trade_path(
                 ] = event
 
         all_targets_found = all(
-            event is not None
-            for event
+            found_event is not None
+            for found_event
             in target_events.values()
         )
 
         all_stops_found = all(
-            event is not None
-            for event
+            found_event is not None
+            for found_event
             in stop_events.values()
         )
 
@@ -482,7 +513,6 @@ def _scan_trade_path(
             stop_events
         ),
     }
-
 
 def _target_zero_relation(
     *,
@@ -584,9 +614,231 @@ def analyze_trade_path(
     trade2_eligible: bool,
     trade2_occurred: bool,
     trade2_executed: bool,
+    target_values: tuple[int, ...] | None = None,
+    stop_values: tuple[int, ...] | None = None,
+    target_values_lineage: str | None = None,
+    stop_values_lineage: str | None = None,
+    trade2_target_values_effective_lineage: str | None = None,
+    trade2_stop_values_effective_lineage: str | None = None,
+    trade2_target_grid_source: str | None = None,
+    trade2_stop_grid_source: str | None = None,
+    parameter_definition_sha256: str | None = None,
 ) -> list[
     dict[str, Any]
 ]:
+    import json
+
+    effective_targets = tuple(
+        int(value)
+        for value in (
+            target_values
+            if target_values is not None
+            else TARGET_LEVELS
+        )
+    )
+
+    effective_stops = tuple(
+        int(value)
+        for value in (
+            stop_values
+            if stop_values is not None
+            else STOP_LEVELS
+        )
+    )
+
+    if not effective_targets:
+        raise ValueError(
+            "target_values cannot be empty."
+        )
+
+    if not effective_stops:
+        raise ValueError(
+            "stop_values cannot be empty."
+        )
+
+    if (
+        len(
+            set(
+                effective_targets
+            )
+        )
+        != len(
+            effective_targets
+        )
+    ):
+        raise ValueError(
+            "target_values must be unique."
+        )
+
+    if (
+        len(
+            set(
+                effective_stops
+            )
+        )
+        != len(
+            effective_stops
+        )
+    ):
+        raise ValueError(
+            "stop_values must be unique."
+        )
+
+    if tuple(
+        sorted(
+            effective_targets
+        )
+    ) != effective_targets:
+        raise ValueError(
+            "target_values must be canonically ordered."
+        )
+
+    if tuple(
+        sorted(
+            effective_stops
+        )
+    ) != effective_stops:
+        raise ValueError(
+            "stop_values must be canonically ordered."
+        )
+
+    if any(
+        value <= 0
+        for value
+        in effective_targets
+    ):
+        raise ValueError(
+            "target_values must be positive."
+        )
+
+    if any(
+        value <= 0
+        for value
+        in effective_stops
+    ):
+        raise ValueError(
+            "stop_values must be positive."
+        )
+
+    #
+    # Standalone compatibility:
+    # historical callers that do not supply Stage 28
+    # lineage receive a deterministic default definition.
+    #
+    if (
+        target_values_lineage is None
+        or stop_values_lineage is None
+        or parameter_definition_sha256 is None
+    ):
+        standalone_grid = (
+            resolve_path_grid(
+                target_values=(
+                    effective_targets
+                ),
+                stop_values=(
+                    effective_stops
+                ),
+            )
+        )
+
+        target_values_lineage = (
+            json.dumps(
+                list(
+                    standalone_grid.target_values
+                ),
+                separators=(
+                    ",",
+                    ":",
+                ),
+            )
+        )
+
+        stop_values_lineage = (
+            json.dumps(
+                list(
+                    standalone_grid.stop_values
+                ),
+                separators=(
+                    ",",
+                    ":",
+                ),
+            )
+        )
+
+        if (
+            trade2_target_values_effective_lineage
+            is None
+        ):
+            trade2_target_values_effective_lineage = (
+                json.dumps(
+                    list(
+                        standalone_grid
+                        .trade2_target_values_effective
+                    ),
+                    separators=(
+                        ",",
+                        ":",
+                    ),
+                )
+            )
+
+        if (
+            trade2_stop_values_effective_lineage
+            is None
+        ):
+            trade2_stop_values_effective_lineage = (
+                json.dumps(
+                    list(
+                        standalone_grid
+                        .trade2_stop_values_effective
+                    ),
+                    separators=(
+                        ",",
+                        ":",
+                    ),
+                )
+            )
+
+        if trade2_target_grid_source is None:
+            trade2_target_grid_source = (
+                standalone_grid
+                .trade2_target_grid_source
+            )
+
+        if trade2_stop_grid_source is None:
+            trade2_stop_grid_source = (
+                standalone_grid
+                .trade2_stop_grid_source
+            )
+
+        if parameter_definition_sha256 is None:
+            parameter_definition_sha256 = (
+                standalone_grid
+                .parameter_definition_sha256
+            )
+
+    if (
+        trade2_target_values_effective_lineage
+        is None
+    ):
+        trade2_target_values_effective_lineage = (
+            target_values_lineage
+        )
+
+    if (
+        trade2_stop_values_effective_lineage
+        is None
+    ):
+        trade2_stop_values_effective_lineage = (
+            stop_values_lineage
+        )
+
+    if trade2_target_grid_source is None:
+        trade2_target_grid_source = "INHERITED"
+
+    if trade2_stop_grid_source is None:
+        trade2_stop_grid_source = "INHERITED"
+
     _validate_chronology(
         trajectory
     )
@@ -603,6 +855,12 @@ def analyze_trade_path(
         trajectory=sliced,
         direction=direction,
         entry_price=entry_price,
+        target_values=(
+            effective_targets
+        ),
+        stop_values=(
+            effective_stops
+        ),
     )
 
     zero_event = scan[
@@ -621,7 +879,7 @@ def analyze_trade_path(
         dict[str, Any]
     ] = []
 
-    for target in TARGET_LEVELS:
+    for target in effective_targets:
         target_event = (
             target_events[
                 target
@@ -639,7 +897,7 @@ def analyze_trade_path(
             )
         )
 
-        for stop in STOP_LEVELS:
+        for stop in effective_stops:
             stop_event = (
                 stop_events[
                     stop
@@ -671,6 +929,30 @@ def analyze_trade_path(
                     ),
                     "path_analysis_version": (
                         PATH_ANALYSIS_ENGINE_VERSION
+                    ),
+                    "path_parameter_version": (
+                        PATH_PARAMETER_VERSION
+                    ),
+                    "target_values": (
+                        target_values_lineage
+                    ),
+                    "stop_values": (
+                        stop_values_lineage
+                    ),
+                    "trade2_target_values_effective": (
+                        trade2_target_values_effective_lineage
+                    ),
+                    "trade2_stop_values_effective": (
+                        trade2_stop_values_effective_lineage
+                    ),
+                    "trade2_target_grid_source": (
+                        trade2_target_grid_source
+                    ),
+                    "trade2_stop_grid_source": (
+                        trade2_stop_grid_source
+                    ),
+                    "parameter_definition_sha256": (
+                        parameter_definition_sha256
                     ),
 
                     "session_date": (
@@ -789,7 +1071,155 @@ def analyze_trade_path(
                 }
             )
 
+    expected_rows = (
+        len(
+            effective_targets
+        )
+        * len(
+            effective_stops
+        )
+    )
+
+    if len(
+        rows
+    ) != expected_rows:
+        raise RuntimeError(
+            "Path Analysis dynamic cardinality "
+            "mismatch: "
+            f"expected={expected_rows}, "
+            f"actual={len(rows)}"
+        )
+
     return rows
+
+def _path_grid_from_definition(
+    definition: dict[str, Any],
+    *,
+    valid_trade1_count: int,
+    valid_trade2_count: int,
+):
+    parameters = (
+        definition.get(
+            "path_parameters"
+        )
+        or {}
+    )
+
+    if not isinstance(
+        parameters,
+        dict,
+    ):
+        raise ValueError(
+            "path_parameters must be an object."
+        )
+
+    allowed = {
+        "target_values",
+        "target_start",
+        "target_end",
+        "target_step",
+        "stop_values",
+        "stop_start",
+        "stop_end",
+        "stop_step",
+        "trade2_target_values",
+        "trade2_target_start",
+        "trade2_target_end",
+        "trade2_target_step",
+        "trade2_stop_values",
+        "trade2_stop_start",
+        "trade2_stop_end",
+        "trade2_stop_step",
+    }
+
+    unknown = sorted(
+        set(
+            parameters
+        )
+        - allowed
+    )
+
+    if unknown:
+        raise ValueError(
+            "Unsupported path_parameters: "
+            + ", ".join(
+                unknown
+            )
+        )
+
+    return resolve_path_grid(
+        **parameters,
+        valid_trade1_count=(
+            valid_trade1_count
+        ),
+        valid_trade2_count=(
+            valid_trade2_count
+        ),
+    )
+
+
+def _grid_lineage_values(
+    grid,
+) -> dict[str, str]:
+    import json
+
+    return {
+        "target_values_lineage": (
+            json.dumps(
+                list(
+                    grid.target_values
+                ),
+                separators=(
+                    ",",
+                    ":",
+                ),
+            )
+        ),
+        "stop_values_lineage": (
+            json.dumps(
+                list(
+                    grid.stop_values
+                ),
+                separators=(
+                    ",",
+                    ":",
+                ),
+            )
+        ),
+        "trade2_target_values_effective_lineage": (
+            json.dumps(
+                list(
+                    grid
+                    .trade2_target_values_effective
+                ),
+                separators=(
+                    ",",
+                    ":",
+                ),
+            )
+        ),
+        "trade2_stop_values_effective_lineage": (
+            json.dumps(
+                list(
+                    grid
+                    .trade2_stop_values_effective
+                ),
+                separators=(
+                    ",",
+                    ":",
+                ),
+            )
+        ),
+        "trade2_target_grid_source": (
+            grid.trade2_target_grid_source
+        ),
+        "trade2_stop_grid_source": (
+            grid.trade2_stop_grid_source
+        ),
+        "parameter_definition_sha256": (
+            grid.parameter_definition_sha256
+        ),
+    }
 
 
 def _load_trajectory(
@@ -910,6 +1340,69 @@ def build_research_path_analysis(
     distributed = (
         pl.read_parquet(
             distributed_path
+        )
+    )
+
+    valid_trade1_count = int(
+        distributed
+        .filter(
+            pl.col(
+                "trade_status"
+            )
+            == "TRADE_1"
+        )
+        .select(
+            [
+                "date",
+                "experiment_id",
+            ]
+        )
+        .unique()
+        .height
+    )
+
+    valid_trade2_count = (
+        int(
+            distributed
+            .filter(
+                pl.col(
+                    "trade2_executed"
+                )
+                .fill_null(
+                    False
+                )
+            )
+            .select(
+                [
+                    "date",
+                    "experiment_id",
+                ]
+            )
+            .unique()
+            .height
+        )
+        if (
+            "trade2_executed"
+            in distributed.columns
+        )
+        else 0
+    )
+
+    path_grid = (
+        _path_grid_from_definition(
+            definition,
+            valid_trade1_count=(
+                valid_trade1_count
+            ),
+            valid_trade2_count=(
+                valid_trade2_count
+            ),
+        )
+    )
+
+    grid_lineage = (
+        _grid_lineage_values(
+            path_grid
         )
     )
 
@@ -1123,6 +1616,13 @@ def build_research_path_analysis(
                 trade2_executed=(
                     trade2_executed
                 ),
+                target_values=(
+                    path_grid.target_values
+                ),
+                stop_values=(
+                    path_grid.stop_values
+                ),
+                **grid_lineage,
             )
         )
 
@@ -1229,7 +1729,37 @@ def build_research_path_analysis(
                 trade2_executed=(
                     trade2_executed
                 ),
+                target_values=(
+                    path_grid
+                    .trade2_target_values_effective
+                ),
+                stop_values=(
+                    path_grid
+                    .trade2_stop_values_effective
+                ),
+                **grid_lineage,
             )
+        )
+
+    expected_rows = (
+        valid_trade1_count
+        * path_grid.trade1_matrix_size
+        + valid_trade2_count
+        * path_grid.trade2_matrix_size
+    )
+
+    if (
+        output_rows
+        and len(
+            output_rows
+        )
+        != expected_rows
+    ):
+        raise RuntimeError(
+            "Research Path Analysis dynamic "
+            "cardinality mismatch: "
+            f"expected={expected_rows}, "
+            f"actual={len(output_rows)}"
         )
 
     if not output_rows:

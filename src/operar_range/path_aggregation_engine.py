@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -431,6 +432,313 @@ def _path_for_experiment_trade(
     )
 
 
+def _sorted_unique_int_values(
+    dataframe: pl.DataFrame,
+    column: str,
+) -> tuple[int, ...]:
+    if (
+        dataframe.is_empty()
+        or column not in dataframe.columns
+    ):
+        return ()
+
+    values = (
+        dataframe
+        .select(
+            pl.col(
+                column
+            )
+            .drop_nulls()
+            .unique()
+            .sort()
+        )
+        .to_series()
+        .to_list()
+    )
+
+    return tuple(
+        int(
+            value
+        )
+        for value
+        in values
+    )
+
+
+def _json_int_tuple(
+    value: Any,
+) -> tuple[int, ...]:
+    if value is None:
+        return ()
+
+    if isinstance(
+        value,
+        (
+            list,
+            tuple,
+        ),
+    ):
+        raw = value
+
+    else:
+        try:
+            raw = json.loads(
+                str(
+                    value
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ):
+            return ()
+
+    if not isinstance(
+        raw,
+        list,
+    ):
+        return ()
+
+    try:
+        result = tuple(
+            sorted(
+                {
+                    int(
+                        item
+                    )
+                    for item
+                    in raw
+                }
+            )
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return ()
+
+    return result
+
+
+def _lineage_grid_values(
+    dataframe: pl.DataFrame,
+    column: str,
+) -> tuple[int, ...]:
+    if (
+        dataframe.is_empty()
+        or column not in dataframe.columns
+    ):
+        return ()
+
+    values = (
+        dataframe[
+            column
+        ]
+        .drop_nulls()
+        .unique()
+        .to_list()
+    )
+
+    if not values:
+        return ()
+
+    parsed = {
+        _json_int_tuple(
+            value
+        )
+        for value
+        in values
+    }
+
+    parsed.discard(
+        ()
+    )
+
+    if not parsed:
+        return ()
+
+    if len(
+        parsed
+    ) != 1:
+        raise ValueError(
+            "Inconsistent parametric grid lineage "
+            f"for column {column}."
+        )
+
+    return next(
+        iter(
+            parsed
+        )
+    )
+
+
+def _target_levels_for_trade(
+    trade_path: pl.DataFrame,
+    *,
+    fallback_path: pl.DataFrame | None = None,
+    trade: str,
+) -> tuple[int, ...]:
+    values = _sorted_unique_int_values(
+        trade_path,
+        "target_points",
+    )
+
+    if values:
+        return values
+
+    if (
+        trade == "TRADE_2"
+        and fallback_path is not None
+    ):
+        values = _lineage_grid_values(
+            fallback_path,
+            (
+                "trade2_target_values_"
+                "effective"
+            ),
+        )
+
+        if values:
+            return values
+
+    if fallback_path is not None:
+        values = _lineage_grid_values(
+            fallback_path,
+            "target_values",
+        )
+
+        if values:
+            return values
+
+    return tuple(
+        int(
+            value
+        )
+        for value
+        in TARGET_LEVELS
+    )
+
+
+def _stop_levels_for_trade(
+    trade_path: pl.DataFrame,
+    *,
+    fallback_path: pl.DataFrame | None = None,
+    trade: str,
+) -> tuple[int, ...]:
+    values = _sorted_unique_int_values(
+        trade_path,
+        "stop_points",
+    )
+
+    if values:
+        return values
+
+    if (
+        trade == "TRADE_2"
+        and fallback_path is not None
+    ):
+        values = _lineage_grid_values(
+            fallback_path,
+            (
+                "trade2_stop_values_"
+                "effective"
+            ),
+        )
+
+        if values:
+            return values
+
+    if fallback_path is not None:
+        values = _lineage_grid_values(
+            fallback_path,
+            "stop_values",
+        )
+
+        if values:
+            return values
+
+    return tuple(
+        int(
+            value
+        )
+        for value
+        in STOP_LEVELS
+    )
+
+
+def _parametric_lineage(
+    trade_path: pl.DataFrame,
+    *,
+    fallback_path: pl.DataFrame | None = None,
+) -> dict[str, Any]:
+    source = (
+        trade_path
+        if not trade_path.is_empty()
+        else (
+            fallback_path
+            if fallback_path is not None
+            else trade_path
+        )
+    )
+
+    fields = (
+        "path_parameter_version",
+        "target_values",
+        "stop_values",
+        "trade2_target_values_effective",
+        "trade2_stop_values_effective",
+        "trade2_target_grid_source",
+        "trade2_stop_grid_source",
+        "parameter_definition_sha256",
+    )
+
+    result: dict[
+        str,
+        Any
+    ] = {}
+
+    for field in fields:
+        if (
+            source.is_empty()
+            or field not in source.columns
+        ):
+            result[
+                field
+            ] = None
+            continue
+
+        values = (
+            source[
+                field
+            ]
+            .drop_nulls()
+            .unique()
+            .to_list()
+        )
+
+        if len(
+            values
+        ) > 1:
+            raise ValueError(
+                "Inconsistent Stage 28 lineage "
+                f"for field {field}."
+            )
+
+        result[
+            field
+        ] = (
+            values[
+                0
+            ]
+            if values
+            else None
+        )
+
+    return result
+
+
 def _distinct_target_sessions(
     trade_path: pl.DataFrame,
     target_points: int,
@@ -801,7 +1109,15 @@ def _build_target_analytics(
         ),
     )
 
-    for target_points in TARGET_LEVELS:
+    target_levels = (
+        _target_levels_for_trade(
+            trade_path,
+            fallback_path=trade_path,
+            trade=trade,
+        )
+    )
+
+    for target_points in target_levels:
         target_sessions = (
             _distinct_target_sessions(
                 trade_path,
@@ -884,6 +1200,9 @@ def _build_target_analytics(
 
         row = {
             **lineage,
+            **_parametric_lineage(
+                trade_path
+            ),
             "trade": trade,
             "target_points": int(
                 target_points
@@ -1054,8 +1373,24 @@ def _build_target_stop_matrix(
         ),
     )
 
-    for target_points in TARGET_LEVELS:
-        for stop_points in STOP_LEVELS:
+    target_levels = (
+        _target_levels_for_trade(
+            trade_path,
+            fallback_path=trade_path,
+            trade=trade,
+        )
+    )
+
+    stop_levels = (
+        _stop_levels_for_trade(
+            trade_path,
+            fallback_path=trade_path,
+            trade=trade,
+        )
+    )
+
+    for target_points in target_levels:
+        for stop_points in stop_levels:
             pair = (
                 trade_path
                 .filter(
@@ -1116,6 +1451,9 @@ def _build_target_stop_matrix(
             rows.append(
                 {
                     **lineage,
+                    **_parametric_lineage(
+                        trade_path
+                    ),
                     "trade": trade,
                     "target_points": int(
                         target_points
@@ -1251,7 +1589,15 @@ def _build_stop_analytics(
         ),
     )
 
-    for stop_points in STOP_LEVELS:
+    stop_levels = (
+        _stop_levels_for_trade(
+            trade_path,
+            fallback_path=trade_path,
+            trade=trade,
+        )
+    )
+
+    for stop_points in stop_levels:
         stop_sessions = (
             _distinct_stop_sessions(
                 trade_path,
@@ -1339,6 +1685,9 @@ def _build_stop_analytics(
         rows.append(
             {
                 **lineage,
+                **_parametric_lineage(
+                    trade_path
+                ),
                 "trade": trade,
                 "stop_points": int(
                     stop_points
@@ -1557,9 +1906,33 @@ def _build_trade2_analytics(
         ),
     )
 
+    trade1_stop_levels = (
+        _stop_levels_for_trade(
+            trade1_path,
+            fallback_path=trade1_path,
+            trade="TRADE_1",
+        )
+    )
+
+    trade2_target_levels = (
+        _target_levels_for_trade(
+            trade2_path,
+            fallback_path=trade1_path,
+            trade="TRADE_2",
+        )
+    )
+
+    trade2_stop_levels = (
+        _stop_levels_for_trade(
+            trade2_path,
+            fallback_path=trade1_path,
+            trade="TRADE_2",
+        )
+    )
+
     for (
         trade1_stop_points
-    ) in STOP_LEVELS:
+    ) in trade1_stop_levels:
         trade1_stop_sessions = (
             _distinct_stop_sessions(
                 trade1_path,
@@ -1574,7 +1947,7 @@ def _build_trade2_analytics(
             )
         )
 
-        for target_points in TARGET_LEVELS:
+        for target_points in trade2_target_levels:
             target_sessions = (
                 _distinct_target_sessions(
                     trade2_path,
@@ -1597,7 +1970,7 @@ def _build_trade2_analytics(
                 trade2_executed_count,
             )
 
-            for stop_points in STOP_LEVELS:
+            for stop_points in trade2_stop_levels:
                 stop_sessions = (
                     _distinct_stop_sessions(
                         trade2_path,
@@ -1623,6 +1996,12 @@ def _build_trade2_analytics(
                 rows.append(
                     {
                         **lineage,
+                        **_parametric_lineage(
+                            trade2_path,
+                            fallback_path=(
+                                trade1_path
+                            ),
+                        ),
 
                         "sessions_total": int(
                             universe[
