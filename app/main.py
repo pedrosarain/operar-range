@@ -17,132 +17,94 @@ SRC_ROOT = (
     / "src"
 )
 
-if str(SRC_ROOT) not in sys.path:
+if str(
+    SRC_ROOT
+) not in sys.path:
     sys.path.insert(
         0,
-        str(SRC_ROOT),
+        str(
+            SRC_ROOT
+        ),
     )
 
-if str(PROJECT_ROOT) not in sys.path:
+if str(
+    PROJECT_ROOT
+) not in sys.path:
     sys.path.insert(
         0,
-        str(PROJECT_ROOT),
+        str(
+            PROJECT_ROOT
+        ),
     )
 
 
 from app.components.common import (  # noqa: E402
     apply_terminal_theme,
 )
-
-#
-# UX-01 — páginas principais.
-#
-from app.pages import administration  # noqa: E402
-from app.pages import analytics  # noqa: E402
-from app.pages import comparisons  # noqa: E402
-from app.pages import dashboard  # noqa: E402
-from app.pages import experiments  # noqa: E402
-from app.pages import researches  # noqa: E402
-from app.pages import strategies  # noqa: E402
-
-#
-# Rotas históricas.
-#
-# Permanecem registradas para compatibilidade
-# interna e com contratos homologados anteriores,
-# mas NÃO aparecem na navegação principal.
-#
-from app.pages import compare  # noqa: E402
-from app.pages import data  # noqa: E402
-from app.pages import new_research  # noqa: E402
-from app.pages import overview  # noqa: E402
-from app.pages import path_aggregation  # noqa: E402
-from app.pages import path_analysis  # noqa: E402
-from app.pages import path_query  # noqa: E402
-from app.pages import query  # noqa: E402
-from app.pages import rankings  # noqa: E402
-from app.pages import research_comparison  # noqa: E402
-from app.pages import sessions  # noqa: E402
-from app.pages import system  # noqa: E402
-from app.pages import trade_lifecycle_analytics  # noqa: E402
+from app.product import admin  # noqa: E402
+from app.product import analytics  # noqa: E402
+from app.product import dashboard  # noqa: E402
+from app.product import research  # noqa: E402
+from app.product import strategies  # noqa: E402
+from app.product.navigation import (  # noqa: E402
+    PUBLIC_ROUTE_LABELS,
+    PUBLIC_ROUTE_SLUGS,
+)
 
 
 APP_TITLE = (
-    "Operar Range — Research Workspace"
+    "Operar Range — Research Workspace V2"
 )
 
 
 #
-# ÚNICA navegação principal visível da UX-01.
+# PRODUCT-01 public contract.
 #
-PRIMARY_PAGES = {
-    "Dashboard": dashboard.render,
-    "Pesquisas": researches.render,
-    "Estratégias": strategies.render,
-    "Experimentos": experiments.render,
-    "Analytics": analytics.render,
-    "Comparações": comparisons.render,
-    "Administração": administration.render,
-}
-
-
+# These are the ONLY public routes.
 #
-# Registro público completo.
-#
-# PAGES continua preservando rotas homologadas
-# por stages anteriores. Isso não significa que
-# essas páginas façam parte do menu principal.
-#
-PAGES = {
-    **PRIMARY_PAGES,
-
-    "Overview": overview.render,
-    "Path Analysis": path_analysis.render,
-    "Path Aggregation": path_aggregation.render,
-    "Path Query": path_query.render,
-    "Data": data.render,
-    "Nova Pesquisa": new_research.render,
-    "Experiments": experiments.render,
-    "Trade Lifecycle Analytics": (
-        trade_lifecycle_analytics.render
+PUBLIC_ROUTES = {
+    "/dashboard": (
+        "Dashboard",
+        dashboard.render,
     ),
-    "Rankings": rankings.render,
-    "Query": query.render,
-    "Research Comparison": (
-        research_comparison.render
+    "/research": (
+        "Pesquisas",
+        research.render,
     ),
-    "Compare": compare.render,
-    "Sessions": sessions.render,
-    "System": system.render,
+    "/strategies": (
+        "Estratégias",
+        strategies.render,
+    ),
+    "/analytics": (
+        "Analytics",
+        analytics.render,
+    ),
+    "/admin": (
+        "Administração",
+        admin.render,
+    ),
 }
 
 
 #
-# Rotas antigas que eventualmente sejam
-# solicitadas pela própria Presentation Layer
-# são redirecionadas para o novo hub equivalente.
+# Compatibility alias for code that imports PAGES.
 #
-LEGACY_PAGE_REDIRECTS = {
-    "Overview": "Dashboard",
-    "Path Analysis": "Analytics",
-    "Path Aggregation": "Analytics",
-    "Path Query": "Analytics",
-    "Data": "Administração",
-    "Nova Pesquisa": "Pesquisas",
-    "Experiments": "Experimentos",
-    "Trade Lifecycle Analytics": "Analytics",
-    "Rankings": "Analytics",
-    "Query": "Administração",
-    "Research Comparison": "Comparações",
-    "Compare": "Comparações",
-    "Sessions": "Administração",
-    "System": "Administração",
-}
+# PRODUCT-01 changes its semantic meaning:
+# it now represents ONLY public product routes.
+#
+PAGES = PUBLIC_ROUTES
+
+
+DEFAULT_ROUTE = (
+    "/dashboard"
+)
 
 
 def configure_page() -> None:
     st.set_page_config(
-        page_title=APP_TITLE,
+        page_title=(
+            APP_TITLE
+        ),
         page_icon="📊",
         layout="wide",
         initial_sidebar_state=(
@@ -151,42 +113,73 @@ def configure_page() -> None:
     )
 
 
-def _consume_requested_page() -> None:
-    requested = (
-        st.session_state.pop(
-            "requested_terminal_page",
-            None,
+def _route_labels() -> dict[
+    str,
+    str,
+]:
+    return {
+        slug: value[
+            0
+        ]
+        for slug, value
+        in PUBLIC_ROUTES.items()
+    }
+
+
+def _selected_route() -> str:
+    current = (
+        st.session_state.get(
+            "product01_route"
         )
     )
 
-    if requested is None:
-        return
-
-    if requested in PRIMARY_PAGES:
-        st.session_state[
-            "research_workspace_page"
-        ] = requested
-        return
-
-    redirected = (
-        LEGACY_PAGE_REDIRECTS.get(
-            requested
+    if (
+        current
+        not in PUBLIC_ROUTES
+    ):
+        current = (
+            DEFAULT_ROUTE
         )
+
+        st.session_state[
+            "product01_route"
+        ] = current
+
+    return str(
+        current
     )
 
-    if redirected is not None:
-        st.session_state[
-            "research_workspace_page"
-        ] = redirected
+
+def navigate(
+    route: str,
+) -> None:
+    if (
+        route
+        not in PUBLIC_ROUTES
+    ):
+        raise ValueError(
+            (
+                "PRODUCT-01 public route "
+                f"not available: {route}"
+            )
+        )
+
+    st.session_state[
+        "product01_route"
+    ] = route
 
 
 def render_sidebar() -> str:
-    _consume_requested_page()
+    current = (
+        _selected_route()
+    )
 
-    active_research_id = (
-        st.session_state.get(
-            "active_research_id"
-        )
+    labels = (
+        _route_labels()
+    )
+
+    route_options = list(
+        PUBLIC_ROUTES.keys()
     )
 
     with st.sidebar:
@@ -195,64 +188,48 @@ def render_sidebar() -> str:
         )
 
         st.caption(
-            "Research Workspace"
+            "Research Workspace V2"
         )
-
-        if active_research_id:
-            st.success(
-                "PESQUISA ATIVA"
-            )
-
-            st.caption(
-                str(
-                    active_research_id
-                )
-            )
-
-        else:
-            st.info(
-                "Nenhuma pesquisa ativa"
-            )
 
         st.divider()
 
-        current = st.session_state.get(
-            "research_workspace_page"
-        )
-
-        if current not in PRIMARY_PAGES:
-            st.session_state[
-                "research_workspace_page"
-            ] = "Dashboard"
-
-        selected_page = (
-            st.radio(
-                "Navegação",
-                options=list(
-                    PRIMARY_PAGES.keys()
-                ),
-                index=0,
-                key=(
-                    "research_workspace_page"
-                ),
-            )
+        selected = st.radio(
+            "Navegação",
+            options=(
+                route_options
+            ),
+            index=(
+                route_options.index(
+                    current
+                )
+            ),
+            format_func=lambda route: (
+                labels[
+                    route
+                ]
+            ),
+            key=(
+                "product01_route"
+            ),
         )
 
         st.divider()
 
         st.caption(
-            "LABORATÓRIO QUANTITATIVO"
+            "LABORATÓRIO DE PERGUNTAS"
         )
 
         st.caption(
             (
-                "A interface apresenta respostas "
-                "da pesquisa. Estruturas técnicas "
-                "permanecem em Administração."
+                "Formule uma pergunta, obtenha "
+                "a resposta e audite os pregões "
+                "que compõem o resultado."
             )
         )
 
-    return selected_page
+    return str(
+        selected
+    )
 
 
 def main() -> None:
@@ -260,34 +237,44 @@ def main() -> None:
 
     apply_terminal_theme()
 
-    selected_page = (
+    route = (
         render_sidebar()
     )
 
-    renderer = PRIMARY_PAGES.get(
-        selected_page
+    page = (
+        PUBLIC_ROUTES.get(
+            route
+        )
     )
 
-    if renderer is None:
+    if page is None:
         st.error(
-            "Página indisponível."
+            "Rota indisponível."
         )
         return
+
+    _label, renderer = (
+        page
+    )
 
     try:
         renderer()
 
     except FileNotFoundError:
         st.error(
-            "Dataset indisponível."
+            (
+                "Os dados necessários para "
+                "esta resposta não estão "
+                "disponíveis."
+            )
         )
 
     except KeyError as exc:
         st.error(
             (
-                "Informação necessária "
-                "não está disponível no "
-                "dataset atual."
+                "Uma informação necessária "
+                "não está disponível para "
+                "esta pesquisa."
             )
         )
 
@@ -300,9 +287,8 @@ def main() -> None:
     except Exception as exc:
         st.error(
             (
-                "Não foi possível renderizar "
-                "esta página com os dados "
-                "atuais."
+                "Não foi possível apresentar "
+                "esta área com os dados atuais."
             )
         )
 
@@ -318,6 +304,22 @@ def main() -> None:
                 exc
             )
         )
+
+
+#
+# Contract guards.
+#
+assert tuple(
+    PUBLIC_ROUTES.keys()
+) == PUBLIC_ROUTE_SLUGS
+
+assert tuple(
+    value[
+        0
+    ]
+    for value
+    in PUBLIC_ROUTES.values()
+) == PUBLIC_ROUTE_LABELS
 
 
 if __name__ == "__main__":
