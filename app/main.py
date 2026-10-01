@@ -33,17 +33,34 @@ if str(PROJECT_ROOT) not in sys.path:
 from app.components.common import (  # noqa: E402
     apply_terminal_theme,
 )
+
+#
+# UX-01 — páginas principais.
+#
+from app.pages import administration  # noqa: E402
+from app.pages import analytics  # noqa: E402
+from app.pages import comparisons  # noqa: E402
+from app.pages import dashboard  # noqa: E402
+from app.pages import experiments  # noqa: E402
+from app.pages import researches  # noqa: E402
+from app.pages import strategies  # noqa: E402
+
+#
+# Rotas históricas.
+#
+# Permanecem registradas para compatibilidade
+# interna e com contratos homologados anteriores,
+# mas NÃO aparecem na navegação principal.
+#
 from app.pages import compare  # noqa: E402
 from app.pages import data  # noqa: E402
-from app.pages import experiments  # noqa: E402
 from app.pages import new_research  # noqa: E402
 from app.pages import overview  # noqa: E402
 from app.pages import path_aggregation  # noqa: E402
-from app.pages import path_query  # noqa: E402
 from app.pages import path_analysis  # noqa: E402
-from app.pages import rankings  # noqa: E402
+from app.pages import path_query  # noqa: E402
 from app.pages import query  # noqa: E402
-from app.pages import researches  # noqa: E402
+from app.pages import rankings  # noqa: E402
 from app.pages import research_comparison  # noqa: E402
 from app.pages import sessions  # noqa: E402
 from app.pages import system  # noqa: E402
@@ -55,24 +72,71 @@ APP_TITLE = (
 )
 
 
+#
+# ÚNICA navegação principal visível da UX-01.
+#
+PRIMARY_PAGES = {
+    "Dashboard": dashboard.render,
+    "Pesquisas": researches.render,
+    "Estratégias": strategies.render,
+    "Experimentos": experiments.render,
+    "Analytics": analytics.render,
+    "Comparações": comparisons.render,
+    "Administração": administration.render,
+}
+
+
+#
+# Registro público completo.
+#
+# PAGES continua preservando rotas homologadas
+# por stages anteriores. Isso não significa que
+# essas páginas façam parte do menu principal.
+#
 PAGES = {
+    **PRIMARY_PAGES,
+
     "Overview": overview.render,
     "Path Analysis": path_analysis.render,
     "Path Aggregation": path_aggregation.render,
     "Path Query": path_query.render,
     "Data": data.render,
     "Nova Pesquisa": new_research.render,
-    "Pesquisas": researches.render,
     "Experiments": experiments.render,
     "Trade Lifecycle Analytics": (
         trade_lifecycle_analytics.render
     ),
     "Rankings": rankings.render,
     "Query": query.render,
-    "Research Comparison": research_comparison.render,
+    "Research Comparison": (
+        research_comparison.render
+    ),
     "Compare": compare.render,
     "Sessions": sessions.render,
     "System": system.render,
+}
+
+
+#
+# Rotas antigas que eventualmente sejam
+# solicitadas pela própria Presentation Layer
+# são redirecionadas para o novo hub equivalente.
+#
+LEGACY_PAGE_REDIRECTS = {
+    "Overview": "Dashboard",
+    "Path Analysis": "Analytics",
+    "Path Aggregation": "Analytics",
+    "Path Query": "Analytics",
+    "Data": "Administração",
+    "Nova Pesquisa": "Pesquisas",
+    "Experiments": "Experimentos",
+    "Trade Lifecycle Analytics": "Analytics",
+    "Rankings": "Analytics",
+    "Query": "Administração",
+    "Research Comparison": "Comparações",
+    "Compare": "Comparações",
+    "Sessions": "Administração",
+    "System": "Administração",
 }
 
 
@@ -95,13 +159,25 @@ def _consume_requested_page() -> None:
         )
     )
 
-    if (
-        requested is not None
-        and requested in PAGES
-    ):
+    if requested is None:
+        return
+
+    if requested in PRIMARY_PAGES:
         st.session_state[
             "research_workspace_page"
         ] = requested
+        return
+
+    redirected = (
+        LEGACY_PAGE_REDIRECTS.get(
+            requested
+        )
+    )
+
+    if redirected is not None:
+        st.session_state[
+            "research_workspace_page"
+        ] = redirected
 
 
 def render_sidebar() -> str:
@@ -119,7 +195,7 @@ def render_sidebar() -> str:
         )
 
         st.caption(
-            "Research Workspace V1"
+            "Research Workspace"
         )
 
         if active_research_id:
@@ -127,11 +203,10 @@ def render_sidebar() -> str:
                 "PESQUISA ATIVA"
             )
 
-            st.code(
+            st.caption(
                 str(
                     active_research_id
-                ),
-                language=None,
+                )
             )
 
         else:
@@ -141,11 +216,20 @@ def render_sidebar() -> str:
 
         st.divider()
 
+        current = st.session_state.get(
+            "research_workspace_page"
+        )
+
+        if current not in PRIMARY_PAGES:
+            st.session_state[
+                "research_workspace_page"
+            ] = "Dashboard"
+
         selected_page = (
             st.radio(
-                "Navigation",
+                "Navegação",
                 options=list(
-                    PAGES.keys()
+                    PRIMARY_PAGES.keys()
                 ),
                 index=0,
                 key=(
@@ -157,14 +241,14 @@ def render_sidebar() -> str:
         st.divider()
 
         st.caption(
-            "RESEARCH WORKSPACE"
+            "LABORATÓRIO QUANTITATIVO"
         )
 
         st.caption(
             (
-                "A pesquisa ativa controla "
-                "os datasets consumidos pela "
-                "plataforma."
+                "A interface apresenta respostas "
+                "da pesquisa. Estruturas técnicas "
+                "permanecem em Administração."
             )
         )
 
@@ -180,7 +264,7 @@ def main() -> None:
         render_sidebar()
     )
 
-    renderer = PAGES.get(
+    renderer = PRIMARY_PAGES.get(
         selected_page
     )
 

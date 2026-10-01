@@ -284,7 +284,6 @@ def _display_experiment_table(
         "runner_pct",
         "runner_rule",
         "final_target_points",
-        "config_sha256",
     ]
 
     visible = (
@@ -506,7 +505,7 @@ def _render_experiment_detail(
     st.divider()
 
     section_title(
-        f"Experiment detail — {experiment_id}"
+        "Detalhes do experimento"
     )
 
     if not experiment:
@@ -525,7 +524,7 @@ def _render_experiment_detail(
             formatted_identity_rows(
                 experiment
             ),
-            title="Identidade",
+            title="Experimento",
         )
 
     with right:
@@ -546,63 +545,15 @@ def _render_experiment_detail(
         results
     )
 
-    with st.expander(
-        "Hashes e versões",
-        expanded=False,
-    ):
-        key_value_panel(
-            [
-                (
-                    "config_sha256",
-                    as_text(
-                        experiment.get(
-                            "config_sha256"
-                        )
-                    ),
-                ),
-                (
-                    "definition_sha256",
-                    as_text(
-                        experiment.get(
-                            "definition_sha256"
-                        )
-                    ),
-                ),
-                (
-                    "engine_version",
-                    as_text(
-                        experiment.get(
-                            "engine_version"
-                        )
-                    ),
-                ),
-                (
-                    "rules_version",
-                    as_text(
-                        experiment.get(
-                            "rules_version"
-                        )
-                    ),
-                ),
-                (
-                    "source_sha256",
-                    as_text(
-                        experiment.get(
-                            "source_sha256"
-                        )
-                    ),
-                ),
-            ],
-        )
 
 
 def render() -> None:
     page_header(
-        "Experiments",
+        "Experimentos",
         (
-            "Consulta read-only das "
-            "definições, configurações "
-            "e métricas dos experimentos."
+            "Laboratório científico da pesquisa: "
+            "hipótese, configuração, resultado "
+            "e métricas principais."
         ),
     )
 
@@ -622,7 +573,7 @@ def render() -> None:
     )
 
     search = st.text_input(
-        "Buscar experiment_id ou experiment_name",
+        "Buscar experimento",
         key="experiments_search",
     )
 

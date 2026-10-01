@@ -8,6 +8,10 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from app.pages.research_result import (
+    render_research_result,
+)
+
 from app.components.common import (
     dataframe_view,
     key_value_panel,
@@ -1382,18 +1386,109 @@ def render() -> None:
 
     st.divider()
 
-    _open_result_button(
-        selected,
-        manifest,
+    section_title(
+        "Projeto de pesquisa",
+        (
+            "Hipótese, Resultados, Experimentos, "
+            "Analytics, Comparações e Descobertas "
+            "centralizados em uma única pesquisa."
+        ),
     )
 
-    st.divider()
-
-    _render_technical_details(
-        selected,
-        manifest,
-        definition,
+    project_tab_result, project_tab_navigation = (
+        st.tabs(
+            [
+                "Resultado",
+                "Explorar",
+            ]
+        )
     )
+
+    with project_tab_result:
+        render_research_result(
+            selected
+        )
+
+    with project_tab_navigation:
+        st.markdown(
+            "### Continuar a investigação"
+        )
+
+        st.caption(
+            (
+                "Abra a área adequada sem "
+                "expor estruturas internas "
+                "da plataforma."
+            )
+        )
+
+        col_a, col_b, col_c = st.columns(
+            3
+        )
+
+        with col_a:
+            if st.button(
+                "Abrir Experimentos",
+                key=(
+                    "research_open_experiments"
+                ),
+                use_container_width=True,
+            ):
+                st.session_state[
+                    "active_research_id"
+                ] = selected
+
+                st.session_state[
+                    "requested_terminal_page"
+                ] = "Experimentos"
+
+                st.rerun()
+
+        with col_b:
+            if st.button(
+                "Abrir Analytics",
+                key=(
+                    "research_open_analytics"
+                ),
+                use_container_width=True,
+            ):
+                st.session_state[
+                    "active_research_id"
+                ] = selected
+
+                st.session_state[
+                    "requested_terminal_page"
+                ] = "Analytics"
+
+                st.rerun()
+
+        with col_c:
+            if st.button(
+                "Abrir Comparações",
+                key=(
+                    "research_open_comparisons"
+                ),
+                use_container_width=True,
+            ):
+                st.session_state[
+                    "active_research_id"
+                ] = selected
+
+                st.session_state[
+                    "requested_terminal_page"
+                ] = "Comparações"
+
+                st.rerun()
+
+        st.info(
+            (
+                "Informações técnicas, hashes, "
+                "manifests, runtime e auditoria "
+                "foram removidos desta visão e "
+                "permanecem disponíveis somente "
+                "em Administração."
+            )
+        )
 
 
 if __name__ == "__main__":
