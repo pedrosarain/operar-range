@@ -87,12 +87,27 @@ PUBLIC_ROUTES = {
 
 
 #
-# Compatibility alias for code that imports PAGES.
+# Public navigation and legacy internal compatibility
+# are intentionally separate contracts.
 #
-# PRODUCT-01 changes its semantic meaning:
-# it now represents ONLY public product routes.
+# PUBLIC_ROUTES is the ONLY source used to render the
+# Research Workspace public navigation.
 #
-PAGES = PUBLIC_ROUTES
+# PAGES preserves historical imports used by legacy
+# tests/internal modules without exposing those pages
+# in the public interface.
+#
+from app.pages import query as _legacy_query
+from app.pages import research_comparison as _legacy_research_comparison
+
+
+PAGES = {
+    **PUBLIC_ROUTES,
+    "Query": _legacy_query.render,
+    "Research Comparison": (
+        _legacy_research_comparison.render
+    ),
+}
 
 
 DEFAULT_ROUTE = (

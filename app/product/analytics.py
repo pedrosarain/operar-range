@@ -469,250 +469,6 @@ def _render_periods(
             )
 
 
-def _render_trade2(
-    trade2: pl.DataFrame,
-    consolidated: pl.DataFrame,
-    comparison: pl.DataFrame,
-    experiment_id: str | None,
-) -> None:
-    st.subheader(
-        "Trade 2"
-    )
-
-    trade2_row = _first_row(
-        trade2,
-        experiment_id=(
-            experiment_id
-        ),
-    )
-
-    if trade2_row is None:
-        st.info(
-            "Analytics de Trade 2 indisponível."
-        )
-
-    else:
-        c1, c2, c3, c4 = st.columns(
-            4
-        )
-
-        with c1:
-            st.metric(
-                "Elegíveis",
-                _number(
-                    trade2_row.get(
-                        "trade2_eligible_count"
-                    )
-                ),
-            )
-
-        with c2:
-            st.metric(
-                "Novo rompimento",
-                _number(
-                    trade2_row.get(
-                        "trade2_occurred_count"
-                    )
-                ),
-            )
-
-        with c3:
-            st.metric(
-                "Executados",
-                _number(
-                    trade2_row.get(
-                        "trade2_executed_count"
-                    )
-                ),
-            )
-
-        with c4:
-            st.metric(
-                "Resultado Trade 2",
-                _number(
-                    trade2_row.get(
-                        "trade2_weighted_result_points"
-                    )
-                ),
-            )
-
-        c1, c2, c3 = st.columns(
-            3
-        )
-
-        with c1:
-            st.metric(
-                "Positivos",
-                _number(
-                    trade2_row.get(
-                        "trade2_winning_count"
-                    )
-                ),
-            )
-
-        with c2:
-            st.metric(
-                "Negativos",
-                _number(
-                    trade2_row.get(
-                        "trade2_losing_count"
-                    )
-                ),
-            )
-
-        with c3:
-            st.metric(
-                "Break-even",
-                _number(
-                    trade2_row.get(
-                        "trade2_breakeven_count"
-                    )
-                ),
-            )
-
-    consolidated_row = _first_row(
-        consolidated,
-        experiment_id=(
-            experiment_id
-        ),
-    )
-
-    if consolidated_row is not None:
-        st.markdown(
-            "#### Ciclo consolidado"
-        )
-
-        c1, c2, c3, c4 = st.columns(
-            4
-        )
-
-        with c1:
-            st.metric(
-                "Ciclos",
-                _number(
-                    consolidated_row.get(
-                        "total_cycles"
-                    )
-                ),
-            )
-
-        with c2:
-            st.metric(
-                "Ciclos com Trade 2",
-                _number(
-                    consolidated_row.get(
-                        "cycles_with_trade2"
-                    )
-                ),
-            )
-
-        with c3:
-            st.metric(
-                "Ciclos recuperados",
-                _number(
-                    consolidated_row.get(
-                        "recovered_cycle_count"
-                    )
-                ),
-            )
-
-        with c4:
-            st.metric(
-                "Resultado consolidado",
-                _number(
-                    consolidated_row.get(
-                        "total_result_points"
-                    )
-                ),
-            )
-
-    comparison_row = _first_row(
-        comparison,
-        experiment_id=(
-            experiment_id
-        ),
-    )
-
-    if comparison_row is not None:
-        st.markdown(
-            "#### Trade 1 × ciclo completo"
-        )
-
-        visible = {
-            "Trade 1": {
-                "Resultado": (
-                    comparison_row.get(
-                        "trade1_total_result_points"
-                    )
-                ),
-                "Expectancy": (
-                    comparison_row.get(
-                        "trade1_expectancy_points"
-                    )
-                ),
-                "Profit Factor": (
-                    comparison_row.get(
-                        "trade1_profit_factor"
-                    )
-                ),
-                "Drawdown": (
-                    comparison_row.get(
-                        "trade1_max_drawdown_points"
-                    )
-                ),
-                "Win Rate": (
-                    comparison_row.get(
-                        "trade1_win_rate_pct"
-                    )
-                ),
-            },
-            "Trade 1 + Trade 2": {
-                "Resultado": (
-                    comparison_row.get(
-                        "consolidated_total_result_points"
-                    )
-                ),
-                "Expectancy": (
-                    comparison_row.get(
-                        "consolidated_expectancy_points"
-                    )
-                ),
-                "Profit Factor": (
-                    comparison_row.get(
-                        "consolidated_profit_factor"
-                    )
-                ),
-                "Drawdown": (
-                    comparison_row.get(
-                        "consolidated_max_drawdown_points"
-                    )
-                ),
-                "Win Rate": (
-                    comparison_row.get(
-                        "consolidated_win_rate_pct"
-                    )
-                ),
-            },
-        }
-
-        table = pl.DataFrame(
-            [
-                {
-                    "Escopo": scope,
-                    **values,
-                }
-                for scope, values
-                in visible.items()
-            ]
-        )
-
-        st.dataframe(
-            table.to_pandas(),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-
 def _render_rankings(
     rankings: pl.DataFrame,
     experiment_id: str | None,
@@ -791,13 +547,42 @@ def _render_rankings(
     )
 
 
+ANALYTICS_TABS = (
+    "Geral",
+    "Períodos",
+    "Rankings",
+    "Distribuições",
+    "Correlações",
+)
+
+
+def _render_future_area(
+    title: str,
+) -> None:
+    st.subheader(
+        title
+    )
+
+    st.info(
+        "Disponível em versão futura."
+    )
+
+
 def render() -> None:
     page_title(
         "Analytics",
         (
-            "Toda estatística quantitativa da "
-            "Research fica centralizada aqui."
+            "Central estatística do "
+            "laboratório quantitativo."
         ),
+    )
+
+    st.caption(
+        (
+            "Esta área apresenta somente "
+            "estatísticas e rankings já "
+            "produzidos pelo backend."
+        )
     )
 
     researches = (
@@ -806,7 +591,7 @@ def render() -> None:
 
     if not researches:
         st.info(
-            "Nenhuma Research concluída disponível."
+            "Nenhuma pesquisa concluída disponível."
         )
         return
 
@@ -881,27 +666,9 @@ def render() -> None:
         "rankings",
     )
 
-    trade2 = _read_parquet(
-        research_id,
-        "trade2_analytics",
-    )
-
-    consolidated = _read_parquet(
-        research_id,
-        "consolidated_analytics",
-    )
-
-    comparison = _read_parquet(
-        research_id,
-        "lifecycle_comparison",
-    )
-
     experiment_ids = _experiment_ids(
         metrics,
         rankings,
-        trade2,
-        consolidated,
-        comparison,
     )
 
     experiment_id = None
@@ -916,12 +683,9 @@ def render() -> None:
         )
 
     tabs = st.tabs(
-        [
-            "Geral",
-            "Períodos",
-            "Trade 2",
-            "Rankings",
-        ]
+        list(
+            ANALYTICS_TABS
+        )
     )
 
     with tabs[0]:
@@ -938,15 +702,17 @@ def render() -> None:
         )
 
     with tabs[2]:
-        _render_trade2(
-            trade2,
-            consolidated,
-            comparison,
+        _render_rankings(
+            rankings,
             experiment_id,
         )
 
     with tabs[3]:
-        _render_rankings(
-            rankings,
-            experiment_id,
+        _render_future_area(
+            "Distribuições"
+        )
+
+    with tabs[4]:
+        _render_future_area(
+            "Correlações"
         )

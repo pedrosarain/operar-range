@@ -372,9 +372,7 @@ def _render_dataset_catalog() -> None:
             hide_index=True,
         )
 
-    st.divider()
 
-    _render_dataset_import()
 
 
 def _render_dataset_import() -> None:
@@ -1392,49 +1390,113 @@ def _render_audit() -> None:
     )
 
 
+ADMIN_SECTIONS = (
+    "Dados",
+    "Sistema",
+    "Avançado",
+)
+
+ADMIN_DATA_TABS = (
+    "Importar Dataset",
+    "Datasets",
+)
+
+ADMIN_ADVANCED_TABS = (
+    "Hashes",
+    "Runtime",
+    "Registry",
+    "Manifest",
+    "Logs",
+    "Versionamento",
+)
+
+
 def render() -> None:
     page_title(
         "Administração",
         (
-            "Dados, runtime, lineage e auditoria "
-            "técnica do Operar Range."
+            "Gerenciamento de dados e "
+            "estado administrativo da plataforma."
         ),
     )
 
-    st.warning(
+    st.caption(
         (
-            "Área técnica. Estas informações "
-            "permanecem isoladas da experiência "
-            "principal de pesquisa."
+            "Área administrativa do Operar Range. "
+            "Recursos técnicos permanecem "
+            "separados em Avançado."
         )
     )
 
-    tabs = st.tabs(
+    sections = st.tabs(
         list(
-            ADMIN_TABS
+            ADMIN_SECTIONS
         )
     )
 
-    with tabs[0]:
-        _render_dataset_catalog()
+    with sections[0]:
+        st.subheader(
+            "Dados"
+        )
 
-    with tabs[1]:
-        _render_hashes()
+        data_tabs = st.tabs(
+            list(
+                ADMIN_DATA_TABS
+            )
+        )
 
-    with tabs[2]:
-        _render_runtime()
+        with data_tabs[0]:
+            _render_dataset_import()
 
-    with tabs[3]:
-        _render_manifest()
+        with data_tabs[1]:
+            _render_dataset_catalog()
 
-    with tabs[4]:
-        _render_registry()
+    with sections[1]:
+        st.subheader(
+            "Sistema"
+        )
 
-    with tabs[5]:
-        _render_logs()
+        st.caption(
+            (
+                "Estado e auditoria da "
+                "operação da plataforma."
+            )
+        )
 
-    with tabs[6]:
-        _render_versioning()
-
-    with tabs[7]:
         _render_audit()
+
+    with sections[2]:
+        st.subheader(
+            "Avançado"
+        )
+
+        st.warning(
+            (
+                "Informações técnicas para "
+                "auditoria e diagnóstico."
+            )
+        )
+
+        advanced_tabs = st.tabs(
+            list(
+                ADMIN_ADVANCED_TABS
+            )
+        )
+
+        with advanced_tabs[0]:
+            _render_hashes()
+
+        with advanced_tabs[1]:
+            _render_runtime()
+
+        with advanced_tabs[2]:
+            _render_registry()
+
+        with advanced_tabs[3]:
+            _render_manifest()
+
+        with advanced_tabs[4]:
+            _render_logs()
+
+        with advanced_tabs[5]:
+            _render_versioning()

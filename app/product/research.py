@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
+import polars as pl
 import streamlit as st
 
 from app.product.questions import (
@@ -18,6 +20,7 @@ from app.product.shared import (
 )
 from operar_range.research_workspace import (
     list_researches,
+    research_paths,
 )
 
 
@@ -45,7 +48,7 @@ def _research_id(
 def _research_name(
     row: dict[str, Any],
 ) -> str:
-    value = (
+    return str(
         row.get(
             "research_name"
         )
@@ -58,42 +61,64 @@ def _research_name(
         or "Pesquisa"
     )
 
+
+def _strategy_name(
+    row: dict[str, Any],
+) -> str:
     return str(
-        value
+        row.get(
+            "strategy"
+        )
+        or row.get(
+            "model_name"
+        )
+        or "Não disponível"
     )
 
 
 def _research_label(
     row: dict[str, Any],
 ) -> str:
-    research_id = _research_id(
+    name = _research_name(
         row
     )
 
-    name = _research_name(
+    strategy = _strategy_name(
         row
+    )
+
+    market = str(
+        row.get(
+            "market"
+        )
+        or "—"
+    )
+
+    asset = str(
+        row.get(
+            "asset"
+        )
+        or "—"
     )
 
     status = str(
         row.get(
             "status"
         )
-        or ""
+        or "—"
     )
 
-    label = (
+    return (
         name
-        + " — "
-        + research_id
+        + " · "
+        + strategy
+        + " · "
+        + market
+        + "/"
+        + asset
+        + " · "
+        + status
     )
-
-    if status:
-        label += (
-            " — "
-            + status
-        )
-
-    return label
 
 
 def _researches() -> list[
@@ -150,7 +175,7 @@ def _select_research(
         default_index = 0
 
     selected = st.selectbox(
-        "Pesquisa",
+        "Selecionar pesquisa",
         options=research_ids,
         index=default_index,
         format_func=lambda value: (
@@ -197,31 +222,158 @@ def _selected_row(
     return {}
 
 
-def _render_summary(
+def _read_manifest(
+    research_id: str,
+) -> pl.DataFrame:
+    try:
+        paths = research_paths(
+            research_id
+        )
+
+        path_value = paths.get(
+            "experiment_manifest"
+        )
+
+        if path_value is None:
+            return pl.DataFrame()
+
+        path = Path(
+            path_value
+        )
+
+        if not path.exists():
+            return pl.DataFrame()
+
+        return pl.read_parquet(
+            path
+        )
+
+    except Exception:
+        return pl.DataFrame()
+
+
+def _session_count(
     row: dict[str, Any],
-) -> None:
-    st.subheader(
-        "Resumo"
+) -> Any:
+    value = row.get(
+        "sessions_total"
     )
 
-    col_a, col_b, col_c = (
-        st.columns(
-            3
+    if value is not None:
+        return value
+
+    research_id = _research_id(
+        row
+    )
+
+    try:
+        paths = research_paths(
+            research_id
+        )
+
+        metrics_path = paths.get(
+            "metrics"
+        )
+
+        if (
+            metrics_path is None
+            or not Path(
+                metrics_path
+            ).exists()
+        ):
+            return None
+
+        frame = pl.read_parquet(
+            metrics_path
+        )
+
+        if (
+            frame.is_empty()
+            or "sessions_total"
+            not in frame.columns
+        ):
+            return None
+
+        return frame[
+            "sessions_total"
+        ][0]
+
+    except Exception:
+        return None
+
+
+def _experiment_count(
+    row: dict[str, Any],
+) -> Any:
+    direct = (
+        row.get(
+            "experiments_valid"
+        )
+        or row.get(
+            "experiments_generated"
         )
     )
 
-    with col_a:
+    if direct is not None:
+        return direct
+
+    manifest = _read_manifest(
+        _research_id(
+            row
+        )
+    )
+
+    if manifest.is_empty():
+        return None
+
+    if (
+        "experiment_id"
+        not in manifest.columns
+    ):
+        return manifest.height
+
+    return (
+        manifest[
+            "experiment_id"
+        ]
+        .drop_nulls()
+        .n_unique()
+    )
+
+
+def _render_identity(
+    row: dict[str, Any],
+) -> None:
+    st.caption(
+        "Nome"
+    )
+
+    st.markdown(
+        "## "
+        + _research_name(
+            row
+        )
+    )
+
+    st.caption(
+        (
+            "Projeto científico quantitativo"
+        )
+    )
+
+    c1, c2, c3, c4 = st.columns(
+        4
+    )
+
+    with c1:
         st.metric(
-            "Status",
-            str(
-                row.get(
-                    "status"
-                )
-                or "—"
+            "Estratégia",
+            _strategy_name(
+                row
             ),
         )
 
-    with col_b:
+    with c2:
         st.metric(
             "Mercado",
             str(
@@ -232,7 +384,7 @@ def _render_summary(
             ),
         )
 
-    with col_c:
+    with c3:
         st.metric(
             "Ativo",
             str(
@@ -243,13 +395,113 @@ def _render_summary(
             ),
         )
 
+    with c4:
+        st.metric(
+            "Status",
+            str(
+                row.get(
+                    "status"
+                )
+                or "—"
+            ),
+        )
+
+    c1, c2, c3 = st.columns(
+        3
+    )
+
+    period = (
+        str(
+            row.get(
+                "period_start"
+            )
+            or "—"
+        )
+        + " → "
+        + str(
+            row.get(
+                "period_end"
+            )
+            or "—"
+        )
+    )
+
+    with c1:
+        st.metric(
+            "Período",
+            period,
+        )
+
+    with c2:
+        sessions = _session_count(
+            row
+        )
+
+        st.metric(
+            "Pregões",
+            (
+                sessions
+                if sessions is not None
+                else "—"
+            ),
+        )
+
+    with c3:
+        experiments = (
+            _experiment_count(
+                row
+            )
+        )
+
+        st.metric(
+            "Experimentos",
+            (
+                experiments
+                if experiments is not None
+                else "—"
+            ),
+        )
+
+    research_id = _research_id(
+        row
+    )
+
+    if research_id:
+        st.caption(
+            "ID interno: "
+            + research_id
+        )
+
+
+def _render_summary(
+    row: dict[str, Any],
+) -> None:
+    st.subheader(
+        "Resumo"
+    )
+
     hypothesis = row.get(
         "hypothesis"
     )
 
+    description = row.get(
+        "description"
+    )
+
+    if description:
+        st.markdown(
+            "#### Sobre esta pesquisa"
+        )
+
+        st.write(
+            str(
+                description
+            )
+        )
+
     if hypothesis:
         st.markdown(
-            "#### Hipótese"
+            "#### Hipótese registrada"
         )
 
         st.write(
@@ -258,24 +510,15 @@ def _render_summary(
             )
         )
 
-    period_start = row.get(
-        "period_start"
-    )
-
-    period_end = row.get(
-        "period_end"
-    )
-
     if (
-        period_start
-        or period_end
+        not description
+        and not hypothesis
     ):
-        st.caption(
+        st.info(
             (
-                "Período: "
-                f"{period_start or '—'}"
-                " → "
-                f"{period_end or '—'}"
+                "Esta pesquisa não possui "
+                "descrição ou hipótese textual "
+                "registrada."
             )
         )
 
@@ -285,7 +528,7 @@ def render() -> None:
         "Pesquisas",
         (
             "Cada pesquisa é um projeto "
-            "quantitativo completo."
+            "científico quantitativo."
         ),
     )
 
@@ -304,6 +547,14 @@ def render() -> None:
         rows,
         research_id,
     )
+
+    st.divider()
+
+    _render_identity(
+        row
+    )
+
+    st.divider()
 
     tabs = st.tabs(
         list(

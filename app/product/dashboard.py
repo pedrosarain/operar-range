@@ -9,9 +9,12 @@ import streamlit as st
 from app.product.shared import (
     page_title,
 )
+from operar_range.quantitative_models import (
+    US_OPEN_BREAKOUT_V1,
+)
 from operar_range.research_workspace import (
+    list_available_datasets,
     list_researches,
-    load_research_definition,
     research_paths,
 )
 
@@ -73,32 +76,10 @@ def _percent(
         return "Não disponível"
 
 
-def _read_parquet(
-    path: Any,
-) -> pl.DataFrame:
-    if not path:
-        return pl.DataFrame()
-
-    resolved = Path(
-        path
-    )
-
-    if not resolved.exists():
-        return pl.DataFrame()
-
-    try:
-        return pl.read_parquet(
-            resolved
-        )
-
-    except Exception:
-        return pl.DataFrame()
-
-
 def _research_name(
     row: dict[str, Any],
 ) -> str:
-    value = (
+    return str(
         row.get(
             "research_name"
         )
@@ -108,14 +89,19 @@ def _research_name(
         or row.get(
             "strategy"
         )
-        or row.get(
-            "research_id"
-        )
+        or "Pesquisa"
     )
 
-    return _text(
-        value
-    )
+
+def _status(
+    row: dict[str, Any],
+) -> str:
+    return str(
+        row.get(
+            "status"
+        )
+        or ""
+    ).upper()
 
 
 def _completed_researches(
@@ -128,12 +114,9 @@ def _completed_researches(
     return [
         row
         for row in rows
-        if str(
-            row.get(
-                "status"
-            )
-            or ""
-        ).upper()
+        if _status(
+            row
+        )
         == "COMPLETED"
     ]
 
@@ -145,34 +128,54 @@ def _running_researches(
 ) -> list[
     dict[str, Any]
 ]:
-    running_statuses = {
+    running = {
         "RUNNING",
         "EXECUTING",
         "IN_PROGRESS",
-        "PENDING",
     }
 
     return [
         row
         for row in rows
-        if str(
-            row.get(
-                "status"
-            )
-            or ""
-        ).upper()
-        in running_statuses
+        if _status(
+            row
+        )
+        in running
     ]
 
 
-def _attention_researches(
+def _waiting_researches(
     rows: list[
         dict[str, Any]
     ],
 ) -> list[
     dict[str, Any]
 ]:
-    attention_statuses = {
+    waiting = {
+        "PENDING",
+        "QUEUED",
+        "CREATED",
+        "READY",
+    }
+
+    return [
+        row
+        for row in rows
+        if _status(
+            row
+        )
+        in waiting
+    ]
+
+
+def _failed_researches(
+    rows: list[
+        dict[str, Any]
+    ],
+) -> list[
+    dict[str, Any]
+]:
+    failed = {
         "FAILED",
         "ERROR",
     }
@@ -180,13 +183,45 @@ def _attention_researches(
     return [
         row
         for row in rows
-        if str(
-            row.get(
-                "status"
+        if _status(
+            row
+        )
+        in failed
+    ]
+
+
+def _incomplete_researches(
+    rows: list[
+        dict[str, Any]
+    ],
+) -> list[
+    dict[str, Any]
+]:
+    known = {
+        "COMPLETED",
+        "FAILED",
+        "ERROR",
+        "RUNNING",
+        "EXECUTING",
+        "IN_PROGRESS",
+        "PENDING",
+        "QUEUED",
+        "CREATED",
+        "READY",
+    }
+
+    return [
+        row
+        for row in rows
+        if (
+            _status(
+                row
             )
-            or ""
-        ).upper()
-        in attention_statuses
+            and _status(
+                row
+            )
+            not in known
+        )
     ]
 
 
@@ -204,10 +239,9 @@ def _latest_completed(
     if not completed:
         return None
 
-    def sort_key(
-        row: dict[str, Any],
-    ) -> str:
-        return str(
+    return sorted(
+        completed,
+        key=lambda row: str(
             row.get(
                 "completed_at"
             )
@@ -215,34 +249,196 @@ def _latest_completed(
                 "created_at"
             )
             or ""
-        )
-
-    return sorted(
-        completed,
-        key=sort_key,
+        ),
         reverse=True,
     )[0]
 
 
-def _overall_rankings(
+def _read_parquet(
+    value: Any,
+) -> pl.DataFrame:
+    if not value:
+        return pl.DataFrame()
+
+    path = Path(
+        value
+    )
+
+    if not path.exists():
+        return pl.DataFrame()
+
+    try:
+        return pl.read_parquet(
+            path
+        )
+
+    except Exception:
+        return pl.DataFrame()
+
+
+def _artifact(
     research_id: str,
+    key: str,
 ) -> pl.DataFrame:
     try:
         paths = research_paths(
             research_id
         )
 
-        frame = _read_parquet(
+        return _read_parquet(
             paths.get(
-                "rankings"
+                key
             )
         )
 
     except Exception:
         return pl.DataFrame()
 
-    if frame.is_empty():
-        return frame
+
+def _experiment_count(
+    rows: list[
+        dict[str, Any]
+    ],
+) -> int:
+    experiment_ids: set[str] = set()
+
+    for row in rows:
+        research_id = str(
+            row.get(
+                "research_id"
+            )
+            or ""
+        )
+
+        if not research_id:
+            continue
+
+        frame = _artifact(
+            research_id,
+            "experiment_manifest",
+        )
+
+        if (
+            frame.is_empty()
+            or "experiment_id"
+            not in frame.columns
+        ):
+            continue
+
+        for value in (
+            frame[
+                "experiment_id"
+            ]
+            .drop_nulls()
+            .unique()
+            .to_list()
+        ):
+            experiment_ids.add(
+                str(
+                    value
+                )
+            )
+
+    return len(
+        experiment_ids
+    )
+
+
+def _strategy_count() -> int:
+    #
+    # PRODUCT-02 apresenta apenas estratégias
+    # formalmente existentes.
+    #
+    models = [
+        US_OPEN_BREAKOUT_V1,
+    ]
+
+    return sum(
+        1
+        for model in models
+        if isinstance(
+            model,
+            dict,
+        )
+        and model.get(
+            "model_id"
+        )
+    )
+
+
+def _active_dataset(
+    latest: dict[str, Any] | None,
+) -> str:
+    if latest is not None:
+        dataset_id = latest.get(
+            "dataset_id"
+        )
+
+        if dataset_id:
+            return str(
+                dataset_id
+            )
+
+    try:
+        datasets = list(
+            list_available_datasets()
+        )
+
+    except Exception:
+        return "Não disponível"
+
+    ready = [
+        row
+        for row in datasets
+        if bool(
+            row.get(
+                "research_ready"
+            )
+            or row.get(
+                "prepared_for_research"
+            )
+        )
+    ]
+
+    if not ready:
+        return "Não disponível"
+
+    ready = sorted(
+        ready,
+        key=lambda row: str(
+            row.get(
+                "imported_at"
+            )
+            or ""
+        ),
+        reverse=True,
+    )
+
+    selected = ready[0]
+
+    return str(
+        selected.get(
+            "dataset_id"
+        )
+        or selected.get(
+            "dataset_key"
+        )
+        or "Não disponível"
+    )
+
+
+def _ranking_leader(
+    research_id: str,
+) -> dict[str, Any] | None:
+    rankings = _artifact(
+        research_id,
+        "rankings",
+    )
+
+    if rankings.is_empty():
+        return None
+
+    frame = rankings
 
     if (
         "scope"
@@ -272,140 +468,117 @@ def _overall_rankings(
         if not ranked.is_empty():
             frame = ranked
 
-    return frame
-
-
-def _leader_from_ranking(
-    rankings: pl.DataFrame,
-    ranking_types: tuple[
-        str,
-        ...,
-    ],
-) -> dict[str, Any] | None:
-    if rankings.is_empty():
-        return None
-
     if (
         "ranking_type"
-        not in rankings.columns
-        or "rank_position"
-        not in rankings.columns
+        in frame.columns
     ):
-        return None
-
-    for ranking_type in ranking_types:
-        subset = rankings.filter(
+        composite = frame.filter(
             pl.col(
                 "ranking_type"
             )
-            == ranking_type
+            == "COMPOSITE_SCORE"
         )
 
-        if subset.is_empty():
-            continue
+        if not composite.is_empty():
+            frame = composite
 
-        subset = subset.sort(
+    if (
+        "rank_position"
+        in frame.columns
+    ):
+        frame = frame.sort(
             "rank_position"
         )
 
-        return subset.row(
-            0,
-            named=True,
-        )
-
-    return None
-
-
-def _metrics(
-    research_id: str,
-) -> pl.DataFrame:
-    try:
-        paths = research_paths(
-            research_id
-        )
-
-        return _read_parquet(
-            paths.get(
-                "metrics"
-            )
-        )
-
-    except Exception:
-        return pl.DataFrame()
-
-
-def _metric_row(
-    metrics: pl.DataFrame,
-    experiment_id: str,
-) -> dict[str, Any] | None:
-    if (
-        metrics.is_empty()
-        or "experiment_id"
-        not in metrics.columns
-    ):
+    if frame.is_empty():
         return None
 
-    subset = metrics.filter(
-        pl.col(
-            "experiment_id"
-        ).cast(
-            pl.Utf8
-        )
-        == str(
-            experiment_id
-        )
-    )
-
-    if subset.is_empty():
-        return None
-
-    return subset.row(
+    return frame.row(
         0,
         named=True,
     )
 
 
-def _formal_research_statements(
+def _metric_row(
     research_id: str,
-) -> dict[str, Any]:
-    try:
-        definition = (
-            load_research_definition(
-                research_id
+    experiment_id: str | None,
+) -> dict[str, Any] | None:
+    metrics = _artifact(
+        research_id,
+        "metrics",
+    )
+
+    if metrics.is_empty():
+        return None
+
+    frame = metrics
+
+    if (
+        experiment_id
+        and "experiment_id"
+        in frame.columns
+    ):
+        selected = frame.filter(
+            pl.col(
+                "experiment_id"
+            ).cast(
+                pl.Utf8
+            )
+            == str(
+                experiment_id
             )
         )
 
-    except Exception:
-        return {}
+        if not selected.is_empty():
+            frame = selected
 
-    keys = (
-        "hypothesis_result",
-        "hypothesis_status",
-        "validation_result",
-        "conclusion_status",
-        "conclusion",
-        "conclusions",
-        "research_conclusions",
-        "discoveries",
-        "research_findings",
-        "findings",
+    if frame.is_empty():
+        return None
+
+    return frame.row(
+        0,
+        named=True,
     )
 
-    return {
-        key: definition.get(
-            key
+
+def _latest_research_facts(
+    latest: dict[str, Any],
+) -> tuple[
+    dict[str, Any] | None,
+    str | None,
+]:
+    research_id = str(
+        latest.get(
+            "research_id"
         )
-        for key in keys
-        if definition.get(
-            key
+        or ""
+    )
+
+    if not research_id:
+        return None, None
+
+    leader = _ranking_leader(
+        research_id
+    )
+
+    experiment_id = None
+
+    if leader is not None:
+        value = leader.get(
+            "experiment_id"
         )
-        not in (
-            None,
-            "",
-            [],
-            {},
-        )
-    }
+
+        if value is not None:
+            experiment_id = str(
+                value
+            )
+
+    metrics = _metric_row(
+        research_id,
+        experiment_id,
+    )
+
+    return metrics, experiment_id
 
 
 def _render_attention(
@@ -414,173 +587,221 @@ def _render_attention(
     ],
 ) -> None:
     st.subheader(
-        "Pesquisas que precisam de atenção"
+        "O que merece atenção"
     )
 
-    failed = (
-        _attention_researches(
-            rows
+    failed = _failed_researches(
+        rows
+    )
+
+    incomplete = _incomplete_researches(
+        rows
+    )
+
+    waiting = _waiting_researches(
+        rows
+    )
+
+    groups = [
+        (
+            "Pesquisas falhadas",
+            failed,
+        ),
+        (
+            "Pesquisas incompletas",
+            incomplete,
+        ),
+        (
+            "Pesquisas aguardando conclusão",
+            waiting,
+        ),
+    ]
+
+    existing = [
+        (
+            label,
+            values,
         )
-    )
+        for label, values
+        in groups
+        if values
+    ]
 
-    if not failed:
+    if not existing:
         st.success(
-            "Nenhuma pesquisa com falha registrada."
+            (
+                "Nenhuma pesquisa requer "
+                "atenção neste momento."
+            )
         )
         return
 
-    st.metric(
-        "Pesquisas com falha",
-        len(
-            failed
-        ),
-    )
-
-    display = []
-
-    for row in failed[
-        :10
-    ]:
-        display.append(
-            {
-                "Pesquisa": (
-                    _research_name(
-                        row
-                    )
-                ),
-                "Status": (
-                    _text(
-                        row.get(
-                            "status"
-                        )
-                    )
-                ),
-                "Mercado": (
-                    _text(
-                        row.get(
-                            "market"
-                        )
-                    )
-                ),
-                "Ativo": (
-                    _text(
-                        row.get(
-                            "asset"
-                        )
-                    )
-                ),
-                "Erro": (
-                    _text(
-                        row.get(
-                            "error_message"
-                        )
-                    )
-                ),
-            }
+    for label, values in existing:
+        st.markdown(
+            f"#### {label}"
         )
 
-    st.dataframe(
-        display,
-        use_container_width=True,
-        hide_index=True,
-    )
+        display = []
+
+        for row in values[
+            :10
+        ]:
+            display.append(
+                {
+                    "Pesquisa": (
+                        _research_name(
+                            row
+                        )
+                    ),
+                    "Status": (
+                        _text(
+                            row.get(
+                                "status"
+                            )
+                        )
+                    ),
+                    "Mercado": (
+                        _text(
+                            row.get(
+                                "market"
+                            )
+                        )
+                    ),
+                    "Ativo": (
+                        _text(
+                            row.get(
+                                "asset"
+                            )
+                        )
+                    ),
+                    "Mensagem": (
+                        _text(
+                            row.get(
+                                "error_message"
+                            )
+                        )
+                        if row.get(
+                            "error_message"
+                        )
+                        else ""
+                    ),
+                }
+            )
+
+        st.dataframe(
+            display,
+            use_container_width=True,
+            hide_index=True,
+        )
 
 
 def render() -> None:
     page_title(
         "Dashboard",
-        (
-            "Estado factual do laboratório "
-            "quantitativo."
-        ),
+        "Como está meu laboratório?",
     )
 
-    rows = list_researches()
-
-    running = (
-        _running_researches(
-            rows
-        )
+    rows = list(
+        list_researches()
     )
 
-    completed = (
-        _completed_researches(
-            rows
-        )
+    running = _running_researches(
+        rows
     )
-
-    attention = (
-        _attention_researches(
-            rows
-        )
-    )
-
-    st.subheader(
-        "Agora"
-    )
-
-    c1, c2, c3, c4 = st.columns(
-        4
-    )
-
-    with c1:
-        st.metric(
-            "Pesquisa rodando",
-            (
-                "Sim"
-                if running
-                else "Não"
-            ),
-        )
-
-    with c2:
-        st.metric(
-            "Pesquisas em execução",
-            len(
-                running
-            ),
-        )
-
-    with c3:
-        st.metric(
-            "Pesquisas concluídas",
-            len(
-                completed
-            ),
-        )
-
-    with c4:
-        st.metric(
-            "Precisam de atenção",
-            len(
-                attention
-            ),
-        )
 
     latest = _latest_completed(
         rows
     )
 
+    st.subheader(
+        "Estado do laboratório"
+    )
+
+    c1, c2, c3 = st.columns(
+        3
+    )
+
+    with c1:
+        st.metric(
+            "Pesquisa em execução",
+            (
+                _research_name(
+                    running[0]
+                )
+                if running
+                else "Nenhuma"
+            ),
+        )
+
+    with c2:
+        st.metric(
+            "Quantidade de pesquisas",
+            len(
+                rows
+            ),
+        )
+
+    with c3:
+        st.metric(
+            "Quantidade de estratégias",
+            _strategy_count(),
+        )
+
+    c4, c5, c6 = st.columns(
+        3
+    )
+
+    with c4:
+        st.metric(
+            "Quantidade de experimentos",
+            _experiment_count(
+                rows
+            ),
+        )
+
+    with c5:
+        st.metric(
+            "Dataset ativo",
+            _active_dataset(
+                latest
+            ),
+        )
+
+    with c6:
+        st.metric(
+            "Última pesquisa concluída",
+            (
+                _research_name(
+                    latest
+                )
+                if latest is not None
+                else "Nenhuma"
+            ),
+        )
+
     st.divider()
 
     st.subheader(
-        "Última pesquisa concluída"
+        "Resumo da última pesquisa"
     )
 
     if latest is None:
         st.info(
             "Nenhuma pesquisa concluída disponível."
         )
+
+        st.divider()
+
         _render_attention(
             rows
         )
+
         return
 
-    research_id = str(
-        latest.get(
-            "research_id"
+    metrics, experiment_id = (
+        _latest_research_facts(
+            latest
         )
-        or ""
     )
 
     a, b, c, d = st.columns(
@@ -589,9 +810,14 @@ def render() -> None:
 
     with a:
         st.metric(
-            "Pesquisa",
-            _research_name(
-                latest
+            "Estratégia pesquisada",
+            _text(
+                latest.get(
+                    "strategy"
+                )
+                or latest.get(
+                    "model_name"
+                )
             ),
         )
 
@@ -625,284 +851,136 @@ def render() -> None:
             ),
         )
 
-    period_start = latest.get(
-        "period_start"
+    period = (
+        str(
+            latest.get(
+                "period_start"
+            )
+            or "—"
+        )
+        + " → "
+        + str(
+            latest.get(
+                "period_end"
+            )
+            or "—"
+        )
     )
 
-    period_end = latest.get(
-        "period_end"
+    a, b, c = st.columns(
+        3
     )
 
-    if (
-        period_start
-        or period_end
-    ):
+    with a:
+        st.metric(
+            "Período",
+            period,
+        )
+
+    with b:
+        sessions = (
+            metrics.get(
+                "sessions_total"
+            )
+            if metrics
+            else latest.get(
+                "sessions_total"
+            )
+        )
+
+        st.metric(
+            "Pregões analisados",
+            _number(
+                sessions
+            ),
+        )
+
+    with c:
+        experiments = (
+            latest.get(
+                "experiments_valid"
+            )
+            or latest.get(
+                "experiments_generated"
+            )
+        )
+
+        st.metric(
+            "Experimentos executados",
+            _number(
+                experiments
+            ),
+        )
+
+    a, b, c = st.columns(
+        3
+    )
+
+    with a:
+        st.metric(
+            "Win Rate",
+            (
+                _percent(
+                    metrics.get(
+                        "win_rate_pct"
+                    )
+                )
+                if metrics
+                else "Não disponível"
+            ),
+        )
+
+    with b:
+        st.metric(
+            "Expectancy",
+            (
+                _number(
+                    metrics.get(
+                        "expectancy_points_per_trade"
+                    )
+                )
+                if metrics
+                else "Não disponível"
+            ),
+        )
+
+    with c:
+        if metrics:
+            pf = metrics.get(
+                "profit_factor"
+            )
+
+            if pf is None:
+                pf_display = _text(
+                    metrics.get(
+                        "profit_factor_status"
+                    )
+                )
+
+            else:
+                pf_display = _number(
+                    pf
+                )
+
+        else:
+            pf_display = (
+                "Não disponível"
+            )
+
+        st.metric(
+            "Profit Factor",
+            pf_display,
+        )
+
+    if experiment_id:
         st.caption(
             (
-                "Período pesquisado: "
-                f"{period_start or '—'}"
-                " → "
-                f"{period_end or '—'}"
+                "Métricas apresentadas a partir "
+                "do experimento de referência "
+                "formalmente disponível na última "
+                "pesquisa."
             )
         )
-
-    rankings = _overall_rankings(
-        research_id
-    )
-
-    metrics = _metrics(
-        research_id
-    )
-
-    composite = _leader_from_ranking(
-        rankings,
-        (
-            "COMPOSITE_SCORE",
-        ),
-    )
-
-    expectancy_rank = (
-        _leader_from_ranking(
-            rankings,
-            (
-                "EXPECTANCY",
-                "EXPECTANCY_POINTS_PER_TRADE",
-            ),
-        )
-    )
-
-    profit_factor_rank = (
-        _leader_from_ranking(
-            rankings,
-            (
-                "PROFIT_FACTOR",
-            ),
-        )
-    )
-
-    st.divider()
-
-    st.subheader(
-        "Respostas quantitativas disponíveis"
-    )
-
-    if composite is not None:
-        experiment_id = str(
-            composite.get(
-                "experiment_id"
-            )
-        )
-
-        row = _metric_row(
-            metrics,
-            experiment_id,
-        )
-
-        st.markdown(
-            "#### Experimento líder do ranking composto"
-        )
-
-        x1, x2, x3, x4 = st.columns(
-            4
-        )
-
-        with x1:
-            st.metric(
-                "Experimento",
-                experiment_id,
-            )
-
-        with x2:
-            st.metric(
-                "Expectancy",
-                (
-                    _number(
-                        row.get(
-                            "expectancy_points_per_trade"
-                        )
-                    )
-                    if row
-                    else "Não disponível"
-                ),
-            )
-
-        with x3:
-            if row:
-                pf = row.get(
-                    "profit_factor"
-                )
-
-                pf_status = row.get(
-                    "profit_factor_status"
-                )
-
-                if pf is None:
-                    pf_display = (
-                        _text(
-                            pf_status
-                        )
-                    )
-                else:
-                    pf_display = (
-                        _number(
-                            pf
-                        )
-                    )
-
-            else:
-                pf_display = (
-                    "Não disponível"
-                )
-
-            st.metric(
-                "Profit Factor",
-                pf_display,
-            )
-
-        with x4:
-            st.metric(
-                "Win Rate",
-                (
-                    _percent(
-                        row.get(
-                            "win_rate_pct"
-                        )
-                    )
-                    if row
-                    else "Não disponível"
-                ),
-            )
-
-        if row:
-            st.caption(
-                (
-                    "Drawdown registrado: "
-                    + _number(
-                        row.get(
-                            "max_drawdown_points"
-                        )
-                    )
-                    + " pontos."
-                )
-            )
-
-    else:
-        st.info(
-            (
-                "A pesquisa não possui ranking "
-                "composto disponível."
-            )
-        )
-
-    left, right = st.columns(
-        2
-    )
-
-    with left:
-        st.markdown(
-            "#### Maior Expectancy formalmente ranqueada"
-        )
-
-        if expectancy_rank is None:
-            st.info(
-                (
-                    "Nenhum ranking específico de "
-                    "Expectancy está disponível."
-                )
-            )
-
-        else:
-            st.metric(
-                "Experimento",
-                _text(
-                    expectancy_rank.get(
-                        "experiment_id"
-                    )
-                ),
-            )
-
-            st.metric(
-                "Valor",
-                _number(
-                    expectancy_rank.get(
-                        "metric_value"
-                    )
-                ),
-            )
-
-    with right:
-        st.markdown(
-            "#### Maior Profit Factor formalmente ranqueado"
-        )
-
-        if profit_factor_rank is None:
-            st.info(
-                (
-                    "Nenhum ranking específico de "
-                    "Profit Factor está disponível."
-                )
-            )
-
-        else:
-            st.metric(
-                "Experimento",
-                _text(
-                    profit_factor_rank.get(
-                        "experiment_id"
-                    )
-                ),
-            )
-
-            st.metric(
-                "Valor",
-                _number(
-                    profit_factor_rank.get(
-                        "metric_value"
-                    )
-                ),
-            )
-
-    st.divider()
-
-    st.subheader(
-        "Conclusões formais"
-    )
-
-    formal = (
-        _formal_research_statements(
-            research_id
-        )
-    )
-
-    if not formal:
-        st.info(
-            (
-                "Esta pesquisa não possui "
-                "descoberta, validação de hipótese "
-                "ou conclusão formal persistida. "
-                "O Dashboard não irá inferi-las."
-            )
-        )
-
-    else:
-        for key, value in formal.items():
-            st.markdown(
-                f"**{key}**"
-            )
-
-            if isinstance(
-                value,
-                list,
-            ):
-                for item in value:
-                    st.write(
-                        f"- {item}"
-                    )
-
-            else:
-                st.write(
-                    value
-                )
 
     st.divider()
 

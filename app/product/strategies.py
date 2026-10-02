@@ -835,30 +835,70 @@ def render() -> None:
     page_title(
         "Estratégias",
         (
-            "Biblioteca de conhecimento "
-            "formalmente registrado."
+            "Biblioteca de conhecimento do "
+            "laboratório quantitativo."
         ),
     )
 
     st.caption(
         (
-            "A biblioteca não cria conclusões. "
-            "Ela organiza somente conhecimento "
-            "e evidências já persistidos."
+            "Esta área organiza o conhecimento "
+            "já produzido sobre cada estratégia. "
+            "Pesquisas são executadas na área "
+            "Pesquisas."
         )
     )
+
+    st.divider()
 
     st.markdown(
         "## "
         + _model_name()
     )
 
+    model = US_OPEN_BREAKOUT_V1
+
+    c1, c2, c3 = st.columns(
+        3
+    )
+
+    with c1:
+        st.metric(
+            "Estratégia",
+            _model_strategy()
+            or "Não disponível",
+        )
+
+    with c2:
+        st.metric(
+            "Status",
+            _text(
+                model.get(
+                    "status"
+                )
+            ),
+        )
+
+    with c3:
+        st.metric(
+            "Versão",
+            _text(
+                model.get(
+                    "version"
+                )
+            ),
+        )
+
     st.caption(
-        "Modelo: "
-        + _model_id()
+        (
+            "Identificador interno: "
+            + _model_id()
+        )
     )
 
     rows = _related_researches()
+
+    st.divider()
 
     tabs = st.tabs(
         [
