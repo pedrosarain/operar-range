@@ -2734,6 +2734,58 @@ def render_questions(
         research_id,
     )
 
+    #
+    # PRODUCT-03.1
+    #
+    # DataFrame vazio não pode representar silenciosamente
+    # artifact inexistente. A ausência física do conjunto
+    # analítico precisa ser comunicada de forma explícita.
+    #
+    research_root = Path(
+        research_paths(
+            research_id
+        )[
+            "root"
+        ]
+    )
+
+    required_question_artifacts = [
+        research_root
+        / "path_analysis.parquet",
+        research_root
+        / "path_target_analytics.parquet",
+        research_root
+        / "path_stop_analytics.parquet",
+        research_root
+        / "path_target_stop_matrix.parquet",
+        research_root
+        / "path_trade2_analytics.parquet",
+    ]
+
+    missing_question_artifacts = [
+        artifact
+        for artifact
+        in required_question_artifacts
+        if not artifact.exists()
+    ]
+
+    if missing_question_artifacts:
+        st.info(
+            "Artifact analítico ainda não "
+            "disponível para esta Research."
+        )
+
+        st.caption(
+            "Artifacts ausentes: "
+            + ", ".join(
+                artifact.name
+                for artifact
+                in missing_question_artifacts
+            )
+        )
+
+        return
+
     distributed = _distributed_results(
         research_id
     )

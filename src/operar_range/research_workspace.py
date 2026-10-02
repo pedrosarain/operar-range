@@ -2671,6 +2671,20 @@ def execute_research(
         | None
     ) = None,
 ) -> dict[str, Any]:
+    #
+    # PRODUCT-03.1
+    #
+    # Path Analysis e Path Aggregation são motores
+    # já homologados. O import local evita acoplamento
+    # circular durante a carga do módulo.
+    #
+    from operar_range.path_analysis_engine import (
+        write_research_path_analysis,
+    )
+    from operar_range.path_aggregation_engine import (
+        write_path_aggregation,
+    )
+
     paths = research_paths(
         research_id
     )
@@ -3234,6 +3248,29 @@ def execute_research(
             progress_callback,
             "ANALYTICS",
             0.82,
+        )
+
+        #
+        # PRODUCT-03.1 — Research Question Integration
+        #
+        # Materializa exclusivamente artifacts derivados
+        # pelos motores já homologados de Path Analysis e
+        # Path Aggregation.
+        #
+        # Não reexecuta o motor quantitativo.
+        # Não altera Dataset, Research, Experiment,
+        # config_sha256 ou lineage.
+        #
+        path_analysis = (
+            write_research_path_analysis(
+                research_id
+            )
+        )
+
+        path_aggregation = (
+            write_path_aggregation(
+                research_id
+            )
         )
 
         analytics = run_analytics(
