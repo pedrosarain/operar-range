@@ -3261,10 +3261,34 @@ def execute_research(
         # Não altera Dataset, Research, Experiment,
         # config_sha256 ou lineage.
         #
+        update_run_manifest(
+            research_id,
+            current_stage=(
+                "PATH_ANALYSIS"
+            ),
+        )
+        _progress(
+            progress_callback,
+            "PATH_ANALYSIS",
+            0.82,
+        )
+
         path_analysis = (
             write_research_path_analysis(
                 research_id
             )
+        )
+
+        update_run_manifest(
+            research_id,
+            current_stage=(
+                "PATH_AGGREGATION"
+            ),
+        )
+        _progress(
+            progress_callback,
+            "PATH_AGGREGATION",
+            0.86,
         )
 
         path_aggregation = (
@@ -3420,6 +3444,22 @@ def execute_research(
             utc_now()
         )
 
+        question_artifacts = (
+            require_research_question_artifacts(
+                research_id
+            )
+        )
+
+        update_run_manifest(
+            research_id,
+            analytical_ready=True,
+            question_artifacts_ready=(
+                question_artifacts[
+                    "available"
+                ]
+            ),
+        )
+
         final_manifest = (
             update_run_manifest(
                 research_id,
@@ -3545,6 +3585,77 @@ def execute_research(
         )
 
         raise
+
+
+
+QUESTION_ARTIFACT_FILENAMES = (
+    "path_analysis.parquet",
+    "path_target_analytics.parquet",
+    "path_stop_analytics.parquet",
+    "path_target_stop_matrix.parquet",
+    "path_trade2_analytics.parquet",
+)
+
+
+def research_question_artifact_status(
+    research_id: str,
+) -> dict[str, Any]:
+    """
+    Read-only PRODUCT-04 analytical-readiness contract.
+
+    A Research is ready for the question layer only when
+    every required path artifact is materialized.
+    """
+    root = research_dir(
+        research_id
+    )
+
+    artifacts = {
+        filename: (
+            root / filename
+        ).exists()
+        for filename
+        in QUESTION_ARTIFACT_FILENAMES
+    }
+
+    missing = [
+        filename
+        for filename, available
+        in artifacts.items()
+        if not available
+    ]
+
+    return {
+        "research_id": research_id,
+        "available": not missing,
+        "artifacts": artifacts,
+        "missing": missing,
+    }
+
+
+def require_research_question_artifacts(
+    research_id: str,
+) -> dict[str, Any]:
+    status = (
+        research_question_artifact_status(
+            research_id
+        )
+    )
+
+    if not status[
+        "available"
+    ]:
+        raise RuntimeError(
+            "Research analytical artifacts "
+            "are incomplete: "
+            + ", ".join(
+                status[
+                    "missing"
+                ]
+            )
+        )
+
+    return status
 
 
 def research_result_paths(

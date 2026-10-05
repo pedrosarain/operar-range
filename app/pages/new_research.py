@@ -1572,6 +1572,89 @@ def _render_steps(
                 )
 
 
+
+_PRODUCT04_DURABLE_WIZARD_STATE_KEY = (
+    "_product04_durable_wizard_state"
+)
+
+
+def _persist_wizard_state() -> None:
+    """
+    Preserve research-definition state independently from
+    Streamlit widget lifecycle between wizard steps.
+    """
+    durable = dict(
+        st.session_state.get(
+            _PRODUCT04_DURABLE_WIZARD_STATE_KEY,
+            {},
+        )
+    )
+
+    for key in list(
+        st.session_state.keys()
+    ):
+        key_text = str(
+            key
+        )
+
+        if key_text == (
+            "stage185_research_step"
+        ):
+            continue
+
+        if not key_text.startswith(
+            (
+                "stage185_",
+                "stage21_",
+                "stage28_",
+            )
+        ):
+            continue
+
+        durable[
+            key_text
+        ] = st.session_state[
+            key
+        ]
+
+    st.session_state[
+        _PRODUCT04_DURABLE_WIZARD_STATE_KEY
+    ] = durable
+
+
+def _restore_wizard_state() -> None:
+    """
+    Restore values previously captured from wizard widgets.
+
+    Restoration occurs before the current step resolves its
+    dataset or builds the research definition.
+    """
+    durable = st.session_state.get(
+        _PRODUCT04_DURABLE_WIZARD_STATE_KEY,
+        {},
+    )
+
+    if not isinstance(
+        durable,
+        dict,
+    ):
+        return
+
+    for key, value in durable.items():
+        current = st.session_state.get(
+            key,
+            None,
+        )
+
+        if (
+            key not in st.session_state
+            or current is None
+        ):
+            st.session_state[
+                key
+            ] = value
+
+
 def _navigation(
     *,
     step: int,
@@ -1592,6 +1675,8 @@ def _navigation(
                 ),
             )
         ):
+            _persist_wizard_state()
+
             st.session_state[
                 "stage185_research_step"
             ] = (
@@ -1615,6 +1700,8 @@ def _navigation(
                 ),
             )
         ):
+            _persist_wizard_state()
+
             st.session_state[
                 "stage185_research_step"
             ] = (
@@ -1648,6 +1735,12 @@ def _progress_callback(
         ),
         "ANALYTICS": (
             "Calculando Analytics"
+        ),
+        "PATH_ANALYSIS": (
+            "Analisando trajetórias"
+        ),
+        "PATH_AGGREGATION": (
+            "Preparando respostas"
         ),
         "RANKING": (
             "Gerando Rankings"
@@ -3338,6 +3431,38 @@ def _step_four(
                 ),
             ),
             (
+                "Targets",
+                format_integer(
+                    estimate.get(
+                        "path_target_count"
+                    )
+                ),
+            ),
+            (
+                "Stops",
+                format_integer(
+                    estimate.get(
+                        "path_stop_count"
+                    )
+                ),
+            ),
+            (
+                "Configurações estimadas",
+                format_integer(
+                    estimate.get(
+                        "path_trade1_matrix_size"
+                    )
+                ),
+            ),
+            (
+                "Path rows estimadas",
+                format_integer(
+                    estimate.get(
+                        "path_estimated_rows"
+                    )
+                ),
+            ),
+            (
                 "Batches",
                 format_integer(
                     estimate.get(
@@ -3463,7 +3588,7 @@ def _step_four(
 
     with right:
         execute_clicked = st.button(
-            "EXECUTAR PESQUISA",
+            "CRIAR E EXECUTAR PESQUISA",
             type="primary",
             use_container_width=True,
             key=(
@@ -3597,7 +3722,7 @@ def _step_four(
         )
 
         if st.button(
-            "ABRIR RESULTADO",
+            "ABRIR PESQUISA",
             type="primary",
             use_container_width=True,
             key=(
@@ -3685,6 +3810,8 @@ def render() -> None:
         )
 
         return
+
+    _restore_wizard_state()
 
     step = int(
         st.session_state.get(
