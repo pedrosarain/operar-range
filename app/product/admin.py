@@ -10,6 +10,9 @@ import streamlit as st
 from app.product.shared import (
     page_title,
 )
+from operar_range.manual_baseline_registry import (
+    list_manual_baselines,
+)
 from operar_range.research_workspace import (
     list_available_datasets,
     list_inbox_files,
@@ -1390,6 +1393,105 @@ def _render_audit() -> None:
     )
 
 
+def _render_manual_baselines() -> None:
+    st.markdown(
+        "### Manual Baselines"
+    )
+
+    st.caption(
+        (
+            "Registro institucional de estudos "
+            "quantitativos produzidos manualmente. "
+            "Manual Baseline é uma entidade própria: "
+            "não é Research, Dataset ou Experiment."
+        )
+    )
+
+    rows = list_manual_baselines()
+
+    if not rows:
+        st.info(
+            (
+                "Nenhum Manual Baseline "
+                "registrado."
+            )
+        )
+
+        return
+
+    display_rows = []
+
+    for row in rows:
+        display_rows.append(
+            {
+                "Baseline ID": (
+                    row.get(
+                        "baseline_id"
+                    )
+                ),
+                "Nome": (
+                    row.get(
+                        "name"
+                    )
+                ),
+                "Estratégia": (
+                    row.get(
+                        "strategy"
+                    )
+                ),
+                "Mercado": (
+                    row.get(
+                        "market"
+                    )
+                ),
+                "Ativo": (
+                    row.get(
+                        "asset"
+                    )
+                ),
+                "Pregões": (
+                    row.get(
+                        "session_count"
+                    )
+                ),
+                "Autor": (
+                    row.get(
+                        "author"
+                    )
+                ),
+                "Versão": (
+                    row.get(
+                        "version"
+                    )
+                ),
+                "Status": (
+                    row.get(
+                        "status"
+                    )
+                ),
+                "Hash": (
+                    row.get(
+                        "baseline_sha256"
+                    )
+                ),
+            }
+        )
+
+    st.dataframe(
+        display_rows,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.caption(
+        (
+            "Esta área é somente leitura nesta "
+            "etapa. Importação, edição e comparação "
+            "automática não estão implementadas."
+        )
+    )
+
+
 ADMIN_SECTIONS = (
     "Dados",
     "Sistema",
@@ -1399,6 +1501,7 @@ ADMIN_SECTIONS = (
 ADMIN_DATA_TABS = (
     "Importar Dataset",
     "Datasets",
+    "Manual Baselines",
 )
 
 ADMIN_ADVANCED_TABS = (
@@ -1450,6 +1553,9 @@ def render() -> None:
 
         with data_tabs[1]:
             _render_dataset_catalog()
+
+        with data_tabs[2]:
+            _render_manual_baselines()
 
     with sections[1]:
         st.subheader(
