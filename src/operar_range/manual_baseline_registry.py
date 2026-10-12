@@ -29,6 +29,8 @@ MANUAL_BASELINE_REQUIRED_FIELDS = (
     "market",
     "asset",
     "source_dataset_id",
+    "period_start",
+    "period_end",
     "universe",
     "session_count",
     "author",
@@ -40,6 +42,10 @@ MANUAL_BASELINE_REQUIRED_FIELDS = (
     "registry_version",
     "schema_version",
     "results_schema_version",
+    "components_schema_version",
+    "component_count",
+    "components",
+    "components_sha256",
     "results",
 )
 
@@ -85,6 +91,20 @@ MANUAL_BASELINE_COMPARISON_STATUSES = (
     "MATCH",
     "DIVERGENT",
 )
+
+
+MANUAL_BASELINE_COMPONENT_FIELDS = (
+    "component_order",
+    "original_name",
+    "stored_name",
+    "media_type",
+    "extension",
+    "size_bytes",
+    "sha256",
+)
+
+
+MANUAL_BASELINE_COMPONENTS_SCHEMA_VERSION = 1
 
 
 def canonical_json(
@@ -236,6 +256,40 @@ def baseline_root(
             root
         )
         / identifier
+    )
+
+
+
+def baseline_components_root(
+    baseline_id: str,
+    version: int,
+    *,
+    root: str | Path = (
+        MANUAL_BASELINE_ROOT
+    ),
+) -> Path:
+    if (
+        isinstance(
+            version,
+            bool,
+        )
+        or not isinstance(
+            version,
+            int,
+        )
+        or version < 1
+    ):
+        raise ValueError(
+            "version must be an integer >= 1."
+        )
+
+    return (
+        baseline_root(
+            baseline_id,
+            root=root,
+        )
+        / "components"
+        / f"{version:06d}"
     )
 
 
@@ -454,6 +508,266 @@ def normalize_results(
     return normalized
 
 
+
+def normalize_components(
+    components: list[
+        dict[str, Any]
+    ] | None,
+) -> list[dict[str, Any]]:
+    if components is None:
+        return []
+
+    if not isinstance(
+        components,
+        list,
+    ):
+        raise TypeError(
+            "components must be a list."
+        )
+
+    normalized: list[
+        dict[str, Any]
+    ] = []
+
+    for component in components:
+        if not isinstance(
+            component,
+            dict,
+        ):
+            raise TypeError(
+                "Manual Baseline component "
+                "must be a dictionary."
+            )
+
+        missing = [
+            field
+            for field
+            in MANUAL_BASELINE_COMPONENT_FIELDS
+            if field not in component
+        ]
+
+        if missing:
+            raise ValueError(
+                "Manual Baseline component "
+                "missing fields: "
+                + ", ".join(
+                    missing
+                )
+            )
+
+        order = component.get(
+            "component_order"
+        )
+
+        if (
+            isinstance(
+                order,
+                bool,
+            )
+            or not isinstance(
+                order,
+                int,
+            )
+            or order < 1
+        ):
+            raise ValueError(
+                "component_order must be "
+                "an integer >= 1."
+            )
+
+        original_name = _clean_text(
+            component.get(
+                "original_name"
+            )
+        )
+
+        stored_name = _clean_text(
+            component.get(
+                "stored_name"
+            )
+        )
+
+        media_type = _clean_text(
+            component.get(
+                "media_type"
+            )
+        )
+
+        extension = _clean_text(
+            component.get(
+                "extension"
+            )
+        ).lower()
+
+        size_bytes = component.get(
+            "size_bytes"
+        )
+
+        sha256 = _clean_text(
+            component.get(
+                "sha256"
+            )
+        ).lower()
+
+        if not original_name:
+            raise ValueError(
+                "original_name is required."
+            )
+
+        if not stored_name:
+            raise ValueError(
+                "stored_name is required."
+            )
+
+        if (
+            "/" in stored_name
+            or "\\" in stored_name
+            or ".." in stored_name
+        ):
+            raise ValueError(
+                "Invalid stored_name."
+            )
+
+        if not media_type:
+            raise ValueError(
+                "media_type is required."
+            )
+
+        if not extension:
+            raise ValueError(
+                "extension is required."
+            )
+
+        if (
+            isinstance(
+                size_bytes,
+                bool,
+            )
+            or not isinstance(
+                size_bytes,
+                int,
+            )
+            or size_bytes < 0
+        ):
+            raise ValueError(
+                "size_bytes must be "
+                "an integer >= 0."
+            )
+
+        if (
+            len(
+                sha256
+            )
+            != 64
+            or any(
+                char
+                not in
+                "0123456789abcdef"
+                for char in sha256
+            )
+        ):
+            raise ValueError(
+                "Invalid component SHA-256."
+            )
+
+        normalized.append(
+            {
+                "component_order": (
+                    order
+                ),
+                "original_name": (
+                    original_name
+                ),
+                "stored_name": (
+                    stored_name
+                ),
+                "media_type": (
+                    media_type
+                ),
+                "extension": (
+                    extension
+                ),
+                "size_bytes": (
+                    size_bytes
+                ),
+                "sha256": sha256,
+            }
+        )
+
+    normalized.sort(
+        key=lambda row: (
+            row[
+                "component_order"
+            ],
+            row[
+                "stored_name"
+            ],
+        )
+    )
+
+    orders = [
+        row[
+            "component_order"
+        ]
+        for row in normalized
+    ]
+
+    if (
+        len(
+            orders
+        )
+        != len(
+            set(
+                orders
+            )
+        )
+    ):
+        raise ValueError(
+            "Duplicate component_order."
+        )
+
+    stored_names = [
+        row[
+            "stored_name"
+        ]
+        for row in normalized
+    ]
+
+    if (
+        len(
+            stored_names
+        )
+        != len(
+            set(
+                stored_names
+            )
+        )
+    ):
+        raise ValueError(
+            "Duplicate stored_name."
+        )
+
+    return normalized
+
+
+def manual_baseline_components_sha256(
+    components: list[
+        dict[str, Any]
+    ] | None,
+) -> str:
+    normalized = (
+        normalize_components(
+            components
+        )
+    )
+
+    return sha256_text(
+        canonical_json(
+            normalized
+        )
+    )
+
+
 def baseline_hash_payload(
     definition: dict[
         str,
@@ -496,6 +810,8 @@ def build_manual_baseline_definition(
     market: str,
     asset: str,
     source_dataset_id: str | None,
+    period_start: str,
+    period_end: str,
     universe: str,
     session_count: int,
     author: str,
@@ -504,6 +820,9 @@ def build_manual_baseline_definition(
     notes: str,
     version: int,
     results: list[
+        dict[str, Any]
+    ] | None = None,
+    components: list[
         dict[str, Any]
     ] | None = None,
 ) -> dict[str, Any]:
@@ -551,6 +870,8 @@ def build_manual_baseline_definition(
         "strategy": strategy,
         "market": market,
         "asset": asset,
+        "period_start": period_start,
+        "period_end": period_end,
         "universe": universe,
         "author": author,
         "created_at": created_at,
@@ -599,6 +920,12 @@ def build_manual_baseline_definition(
             )
             or None
         ),
+        "period_start": cleaned[
+            "period_start"
+        ],
+        "period_end": cleaned[
+            "period_end"
+        ],
         "universe": cleaned[
             "universe"
         ],
@@ -631,12 +958,38 @@ def build_manual_baseline_definition(
         "results_schema_version": (
             MANUAL_BASELINE_RESULTS_SCHEMA_VERSION
         ),
+        "components_schema_version": (
+            MANUAL_BASELINE_COMPONENTS_SCHEMA_VERSION
+        ),
+        "components": (
+            normalize_components(
+                components
+            )
+        ),
         "results": (
             normalize_results(
                 results
             )
         ),
     }
+
+    definition[
+        "component_count"
+    ] = len(
+        definition[
+            "components"
+        ]
+    )
+
+    definition[
+        "components_sha256"
+    ] = (
+        manual_baseline_components_sha256(
+            definition[
+                "components"
+            ]
+        )
+    )
 
     definition[
         "baseline_sha256"
@@ -720,6 +1073,53 @@ def validate_manual_baseline_definition(
             "results"
         )
     )
+
+    components = normalize_components(
+        definition.get(
+            "components"
+        )
+    )
+
+    if (
+        definition.get(
+            "components_schema_version"
+        )
+        != MANUAL_BASELINE_COMPONENTS_SCHEMA_VERSION
+    ):
+        raise ValueError(
+            "Unsupported "
+            "components_schema_version."
+        )
+
+    if (
+        definition.get(
+            "component_count"
+        )
+        != len(
+            components
+        )
+    ):
+        raise ValueError(
+            "Manual Baseline "
+            "component_count mismatch."
+        )
+
+    expected_components_hash = (
+        manual_baseline_components_sha256(
+            components
+        )
+    )
+
+    if (
+        definition.get(
+            "components_sha256"
+        )
+        != expected_components_hash
+    ):
+        raise ValueError(
+            "Manual Baseline "
+            "components SHA256 mismatch."
+        )
 
     expected = (
         manual_baseline_sha256(

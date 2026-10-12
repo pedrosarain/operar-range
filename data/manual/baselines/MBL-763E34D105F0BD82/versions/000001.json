@@ -1,0 +1,37 @@
+{
+  "asset": "WINFUT",
+  "author": "Founder",
+  "baseline_id": "MBL-763E34D105F0BD82",
+  "baseline_sha256": "a6f757e593e4ba98ca782b768a7064144f9a0548c2dc591421af03f42e046e4c",
+  "component_count": 1,
+  "components": [
+    {
+      "component_order": 1,
+      "extension": ".xlsx",
+      "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "original_name": "candle18_manual.xlsx",
+      "sha256": "d83dfa42a7a3956301af112809ea02bb507176d312085f7c2788b3e089fdc33e",
+      "size_bytes": 47307,
+      "stored_name": "candle18_manual.xlsx"
+    }
+  ],
+  "components_schema_version": 1,
+  "components_sha256": "0520fcd449743f48a03c4dc499dbe6821b0ea4b43a813b02c5548259542d95ef",
+  "created_at": "2026-10-12T19:34:49Z",
+  "description": "Primeiro Manual Baseline Oficial do Operar Range para o estudo US OPEN BREAKOUT V1.",
+  "market": "B3",
+  "name": "US OPEN BREAKOUT V1 Manual Baseline Oficial",
+  "notes": "Registrado a partir do artefato quantitativo original aprovado pelo CTO. O XLSX original é preservado integralmente e constitui a fonte das respostas quantitativas manuais desta versão. Nenhuma resposta foi recalculada, reinterpretada ou transcrita para results durante o PRODUCT-07.",
+  "period_end": "2026-09-21",
+  "period_start": "2026-01-01",
+  "registry_version": "manual-baseline-registry-v1",
+  "results": [],
+  "results_schema_version": 1,
+  "schema_version": 1,
+  "session_count": 164,
+  "source_dataset_id": null,
+  "status": "OFFICIAL",
+  "strategy": "US OPEN BREAKOUT V1",
+  "universe": "164 pregões",
+  "version": 1
+}

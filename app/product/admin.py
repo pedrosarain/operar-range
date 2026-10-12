@@ -1439,6 +1439,23 @@ def _render_manual_baselines() -> None:
                         "strategy"
                     )
                 ),
+                "Período": (
+                    (
+                        str(
+                            row.get(
+                                "period_start"
+                            )
+                            or ""
+                        )
+                        + " → "
+                        + str(
+                            row.get(
+                                "period_end"
+                            )
+                            or ""
+                        )
+                    )
+                ),
                 "Mercado": (
                     row.get(
                         "market"
@@ -1452,6 +1469,16 @@ def _render_manual_baselines() -> None:
                 "Pregões": (
                     row.get(
                         "session_count"
+                    )
+                ),
+                "Componentes": (
+                    row.get(
+                        "component_count"
+                    )
+                ),
+                "Hash componentes": (
+                    row.get(
+                        "components_sha256"
                     )
                 ),
                 "Autor": (
@@ -1482,6 +1509,89 @@ def _render_manual_baselines() -> None:
         use_container_width=True,
         hide_index=True,
     )
+
+    st.markdown(
+        "#### Componentes documentais"
+    )
+
+    for row in rows:
+        baseline_id = str(
+            row.get(
+                "baseline_id"
+            )
+            or ""
+        )
+
+        version = row.get(
+            "version"
+        )
+
+        components = (
+            row.get(
+                "components"
+            )
+            or []
+        )
+
+        with st.expander(
+            (
+                f"{baseline_id} "
+                f"— versão {version}"
+            )
+        ):
+            if not components:
+                st.info(
+                    "Nenhum componente registrado."
+                )
+            else:
+                component_rows = []
+
+                for component in components:
+                    component_rows.append(
+                        {
+                            "Ordem": (
+                                component.get(
+                                    "component_order"
+                                )
+                            ),
+                            "Nome original": (
+                                component.get(
+                                    "original_name"
+                                )
+                            ),
+                            "Nome persistido": (
+                                component.get(
+                                    "stored_name"
+                                )
+                            ),
+                            "Tipo": (
+                                component.get(
+                                    "media_type"
+                                )
+                            ),
+                            "Extensão": (
+                                component.get(
+                                    "extension"
+                                )
+                            ),
+                            "Tamanho": (
+                                component.get(
+                                    "size_bytes"
+                                )
+                            ),
+                            "SHA-256": (
+                                component.get(
+                                    "sha256"
+                                )
+                            ),
+                        }
+                    )
+
+                st.dataframe(
+                    component_rows,
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
     st.caption(
         (

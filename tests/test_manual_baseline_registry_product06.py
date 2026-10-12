@@ -57,6 +57,8 @@ def _definition(
             market="TEST",
             asset="TEST1",
             source_dataset_id=None,
+            period_start="2026-01-01",
+            period_end="2026-01-01",
             universe=(
                 "Synthetic sessions"
             ),
@@ -71,6 +73,7 @@ def _definition(
             ),
             version=version,
             results=[],
+            components=[],
         )
     )
 
@@ -266,6 +269,8 @@ def test_revision_preserves_history(
                 "asset"
             ],
             source_dataset_id=None,
+            period_start="2026-01-01",
+            period_end="2026-01-01",
             universe=version1[
                 "universe"
             ],
@@ -282,6 +287,7 @@ def test_revision_preserves_history(
             ),
             version=2,
             results=[],
+            components=[],
         )
     )
 
@@ -413,6 +419,8 @@ def test_result_contract_supports_future_answers():
             market="TEST",
             asset="TEST",
             source_dataset_id=None,
+            period_start="2026-01-01",
+            period_end="2026-01-01",
             universe="Synthetic",
             session_count=0,
             author="Author",
@@ -422,6 +430,7 @@ def test_result_contract_supports_future_answers():
             status="DRAFT",
             notes="",
             version=1,
+            components=[],
             results=[
                 {
                     "question_key": (
